@@ -1,0 +1,9 @@
+discord.py>=2.7.1
+davey
+Pillow
+requests
+PyNaCl
+python-dotenv
+motor
+aiohttp
+pydantic

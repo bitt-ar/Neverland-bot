@@ -1,0 +1,39 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the dashboard reaches the bot by service name,
+      # so the control plane must bind to all interfaces inside its container.
+      - CONTROL_PLANE_HOST=0.0.0.0
+    depends_on:
+      - mongo
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - CONTROL_PLANE_URL=http://bot:8800
+      - CONTROL_PLANE_SECRET=${CONTROL_PLANE_SECRET}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - GUILD_ID=${GUILD_ID:-}
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+    depends_on:
+      - bot
+
+volumes:
+  mongo_data:

@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+**/.pytest_cache/
+bot/tests/
+tests/
+pytest.ini
+requirements-dev.txt
+
+# Secrets & environment
+.env
+.env*
+**/.env*
+!.env.example
+!**/.env.example
+cookies.txt
+
+# Runtime data
+downloads/
+*.webm
+data/activity.db
+data/
+activity.db
+
+# Node / Next.js
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+**/out/
+build/
+**/build/
+.pnp
+.pnp.js
+
+# AI agents, specs, internal memory & docs
+.claude/
+**/.claude/
+.specify/
+**/.specify/
+MEMORY.md
+docs/
+.commandcode/
+**/.commandcode/
+
+# Misc
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+cogs/client-secret.json  
+.playwright-mcp/
+*.log
+scratch/

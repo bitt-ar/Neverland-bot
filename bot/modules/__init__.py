@@ -1,0 +1,1 @@
+"""Neverland bot module framework."""
