@@ -1,9 +1,10 @@
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from bot.modules.base import Module, SnowflakeId
+from bot.modules.tickets.helpers import sanitize_button_emoji
 
 HEX_COLOR_REGEX = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -44,14 +45,29 @@ class TicketCategoryModel(BaseModel):
             raise ValueError("Category id must be a short slug containing only letters, numbers, hyphens, and underscores")
         return cleaned
 
+    @field_validator("emoji", mode="before")
+    @classmethod
+    def validate_category_emoji(cls, v: Any) -> str:
+        cleaned = sanitize_button_emoji(v)
+        return cleaned or ""
+
 
 class TicketsConfig(BaseModel):
     panel_channel_id: SnowflakeId = None
+    logs_channel_id: SnowflakeId = None
     panel_content: str = Field(default="", max_length=2000)
     panel_embed: Optional[PanelEmbedModel] = None
     button_label: str = Field(default="Open a ticket", min_length=1, max_length=80)
     button_emoji: str = Field(default="🎫", max_length=32)
+    max_open_tickets: int = Field(default=1, ge=1, le=20)
+    cooldown_seconds: int = Field(default=0, ge=0, le=86400)
     categories: list[TicketCategoryModel] = Field(default_factory=list, max_length=25)
+
+    @field_validator("button_emoji", mode="before")
+    @classmethod
+    def validate_btn_emoji(cls, v: Any) -> str:
+        cleaned = sanitize_button_emoji(v)
+        return cleaned or "🎫"
 
     @model_validator(mode="after")
     def validate_unique_categories(self) -> "TicketsConfig":
@@ -80,6 +96,8 @@ def get_default_tickets_config() -> dict:
         ),
         button_label="Open a ticket",
         button_emoji="🎫",
+        max_open_tickets=1,
+        cooldown_seconds=0,
         categories=[
             TicketCategoryModel(
                 id="general",

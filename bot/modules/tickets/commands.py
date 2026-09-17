@@ -93,6 +93,15 @@ class TicketsCommandsCog(commands.Cog):
             value="✅ Yes" if panel_published else "❌ No",
             inline=True,
         )
+        logs_ch_id = cfg.get("logs_channel_id")
+        logs_channel = (
+            interaction.guild.get_channel(int(logs_ch_id)) if logs_ch_id else None
+        )
+        embed.add_field(
+            name="Logs Channel",
+            value=logs_channel.mention if logs_channel else "*Not configured*",
+            inline=True,
+        )
 
         categories = cfg.get("categories", [])
         if categories:
@@ -123,6 +132,14 @@ class TicketsCommandsCog(commands.Cog):
             name="Total Tickets (Lifetime)",
             value=f"📁 **{total_count}** tickets created",
             inline=True,
+        )
+        max_open = cfg.get("max_open_tickets", 1)
+        cooldown = cfg.get("cooldown_seconds", 0)
+        limits_desc = f"Max Open: **{max_open}** | Cooldown: **{cooldown}s**"
+        embed.add_field(
+            name="Limits & Restrictions",
+            value=limits_desc,
+            inline=False,
         )
 
         embed.add_field(
@@ -178,3 +195,41 @@ class TicketsCommandsCog(commands.Cog):
             await interaction.followup.send(
                 f"❌ Failed to publish panel: {e}", ephemeral=True
             )
+
+    @tickets.command(
+        name="logs",
+        description="Set or view the ticket audit & transcript logs channel (Admin)",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def tickets_logs(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel = None,
+        off: bool = False,
+    ):
+        if not await self._check_enabled(interaction):
+            return
+
+        cfg = await self.registry.get_config(interaction.guild_id, "tickets")
+
+        if off:
+            cfg["logs_channel_id"] = None
+            await self.registry.set_config(interaction.guild_id, "tickets", cfg)
+            await interaction.response.send_message("📁 Ticket logs disabled.", ephemeral=True)
+            return
+
+        if channel:
+            cfg["logs_channel_id"] = channel.id
+            await self.registry.set_config(interaction.guild_id, "tickets", cfg)
+            await interaction.response.send_message(
+                f"📁 Ticket logs channel set to {channel.mention}.", ephemeral=True
+            )
+            return
+
+        cur_id = cfg.get("logs_channel_id")
+        cur_ch = interaction.guild.get_channel(int(cur_id)) if cur_id else None
+        status_text = cur_ch.mention if cur_ch else "*(Not configured)*"
+        await interaction.response.send_message(
+            f"📁 Current ticket logs channel: {status_text}\nUse `/tickets logs channel:#channel` to configure or `off:True` to disable.",
+            ephemeral=True,
+        )

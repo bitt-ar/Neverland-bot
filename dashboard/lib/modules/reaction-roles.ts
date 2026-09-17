@@ -7,7 +7,8 @@ import {
 } from "@/lib/control-plane";
 
 export const reactionRolePairSchema = z.object({
-  emoji: z.string().min(1, "Emoji is required"),
+  emoji: z.string().optional().default(""),
+  label: z.string().max(100, "Label must be at most 100 characters").optional().default(""),
   role_id: z.string().regex(/^\d+$/, "A valid role must be selected"),
   order: z.number().int().optional(),
 });
@@ -49,8 +50,23 @@ export const reactionRoleMessageSchema = z
   )
   .refine(
     (data) => {
-      const emojis = data.pairs.map((p) => p.emoji.trim()).filter(Boolean);
-      return new Set(emojis).size === emojis.length;
+      if (data.style !== "select") {
+        return data.pairs.every((p) => Boolean(p.emoji && p.emoji.trim().length > 0));
+      }
+      return true;
+    },
+    {
+      message: "Emoji is required for reactions and buttons styles",
+      path: ["pairs"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.style !== "select") {
+        const emojis = data.pairs.map((p) => p.emoji.trim()).filter(Boolean);
+        return new Set(emojis).size === emojis.length;
+      }
+      return true;
     },
     {
       message: "Every emoji in the pairs list must be unique",
@@ -101,6 +117,7 @@ export interface ReactionRoleMessage {
   enabled: boolean;
   pairs: Array<{
     emoji: string;
+    label?: string;
     role_id: string;
     order: number;
   }>;

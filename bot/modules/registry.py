@@ -5,6 +5,7 @@ from typing import Optional
 
 from bot.modules.base import Module
 from bot.modules.leveling.module import LevelingModule
+from bot.modules.moderation.module import ModerationModule
 from bot.modules.reaction_roles.module import ReactionRolesModule
 from bot.modules.temp_voice.module import TempVoiceModule
 from bot.modules.tickets.module import TicketsModule
@@ -75,6 +76,11 @@ class Registry:
                 return count > 0
             elif name == "tickets":
                 count = await database.db.tickets.count_documents(
+                    {"guild_id": {"$in": [guild_id, str(guild_id)]}}, limit=1
+                )
+                return count > 0
+            elif name == "moderation":
+                count = await database.db.moderation_cases.count_documents(
                     {"guild_id": {"$in": [guild_id, str(guild_id)]}}, limit=1
                 )
                 return count > 0
@@ -474,6 +480,7 @@ def build_registry(bot) -> Registry:
         WelcomeModule(bot),
         TempVoiceModule(bot),
         TicketsModule(bot),
+        ModerationModule(bot),
     ]
     return Registry(bot, modules)
 

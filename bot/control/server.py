@@ -492,6 +492,7 @@ def _format_rr_doc(doc: dict) -> dict:
                 formatted_pairs.append(
                     {
                         "emoji": str(p.get("emoji", "")),
+                        "label": str(p.get("label", "")),
                         "role_id": str(p.get("role_id", "")),
                         "order": int(p.get("order", i)),
                     }
@@ -500,6 +501,28 @@ def _format_rr_doc(doc: dict) -> dict:
     else:
         d["pairs"] = []
     return d
+
+
+DIGIT_KEYCAPS = {
+    "0": "0️⃣", "1": "1️⃣", "2": "2️⃣", "3": "3️⃣", "4": "4️⃣",
+    "5": "5️⃣", "6": "6️⃣", "7": "7️⃣", "8": "8️⃣", "9": "9️⃣", "10": "🔟"
+}
+
+
+def resolve_reaction_emoji(emoji_val: str | None) -> str | discord.PartialEmoji:
+    """Normalize input emoji strings into valid Discord reaction emojis."""
+    if not emoji_val or not isinstance(emoji_val, str):
+        return ""
+    s = emoji_val.strip()
+    if s in DIGIT_KEYCAPS:
+        return DIGIT_KEYCAPS[s]
+    try:
+        partial = discord.PartialEmoji.from_str(s)
+        if partial.id:
+            return partial
+    except Exception:
+        pass
+    return s
 
 
 def _build_embed(embed_data: dict | None) -> discord.Embed | None:
@@ -531,10 +554,15 @@ def _build_reaction_role_view(style: str, msg_id: int | str, pairs: list[dict], 
             label = role.name if role else f"Role {role_id}"
             emoji_str = pair.get("emoji", "")
             emoji = None
-            try:
-                emoji = discord.PartialEmoji.from_str(emoji_str)
-            except Exception:
-                emoji = None
+            if emoji_str:
+                resolved = resolve_reaction_emoji(emoji_str)
+                if isinstance(resolved, discord.PartialEmoji):
+                    emoji = resolved
+                elif resolved:
+                    try:
+                        emoji = discord.PartialEmoji.from_str(str(resolved))
+                    except Exception:
+                        emoji = None
             custom_id = f"rr:{msg_id}:{i}"
             btn = discord.ui.Button(
                 style=discord.ButtonStyle.secondary,
@@ -551,13 +579,19 @@ def _build_reaction_role_view(style: str, msg_id: int | str, pairs: list[dict], 
         for pair in pairs[:25]:
             role_id = int(pair["role_id"])
             role = guild.get_role(role_id)
-            label = (role.name if role else f"Role {role_id}")[:100]
-            emoji_str = pair.get("emoji", "")
+            custom_label = str(pair.get("label") or "").strip()
+            label = (custom_label or (role.name if role else f"Role {role_id}"))[:100]
+            emoji_str = str(pair.get("emoji") or "").strip()
             emoji = None
-            try:
-                emoji = discord.PartialEmoji.from_str(emoji_str)
-            except Exception:
-                emoji = None
+            if emoji_str:
+                resolved = resolve_reaction_emoji(emoji_str)
+                if isinstance(resolved, discord.PartialEmoji):
+                    emoji = resolved
+                elif resolved:
+                    try:
+                        emoji = discord.PartialEmoji.from_str(str(resolved))
+                    except Exception:
+                        emoji = None
             options.append(
                 discord.SelectOption(
                     label=label,
@@ -668,32 +702,39 @@ def _validate_reaction_role_payload(data: dict, guild: discord.Guild) -> tuple[d
 
         for i, p in enumerate(pairs_raw):
             if not isinstance(p, dict):
-                details.append({"field": f"pairs[{i}]", "message": f"Pair at index {i} must be an object with 'emoji' and 'role_id'."})
+                details.append({"field": f"pairs[{i}]", "message": f"Pair at index {i} must be an object with 'role_id'."})
                 continue
 
             emoji_raw = p.get("emoji")
-            if not emoji_raw or not isinstance(emoji_raw, str) or not emoji_raw.strip():
-                details.append({"field": f"pairs[{i}].emoji", "message": f"Pair at index {i}: Emoji cannot be empty."})
-                continue
-            emoji_str = emoji_raw.strip()
+            label_raw = p.get("label")
+            label_str = str(label_raw).strip() if label_raw is not None else ""
 
-            if emoji_str in seen_emojis:
-                details.append({"field": f"pairs[{i}].emoji", "message": f"Duplicate emoji '{emoji_str}' at pair {i + 1}."})
-            seen_emojis.add(emoji_str)
+            if style == "select":
+                emoji_str = str(emoji_raw).strip() if emoji_raw else ""
+            else:
+                if not emoji_raw or not isinstance(emoji_raw, str) or not emoji_raw.strip():
+                    details.append({"field": f"pairs[{i}].emoji", "message": f"Pair at index {i}: Emoji cannot be empty."})
+                    continue
+                # Normalize emoji (e.g. "1" -> "1️⃣")
+                resolved = resolve_reaction_emoji(emoji_raw)
+                emoji_str = str(resolved) if resolved else emoji_raw.strip()
 
-            # Usability check via discord.PartialEmoji.from_str
-            try:
-                partial = discord.PartialEmoji.from_str(emoji_str)
-                if partial.id:
-                    if not partial.is_usable():
+                if emoji_str in seen_emojis:
+                    details.append({"field": f"pairs[{i}].emoji", "message": f"Duplicate emoji '{emoji_str}' at pair {i + 1}."})
+                seen_emojis.add(emoji_str)
+
+                # Usability check via discord.PartialEmoji.from_str
+                try:
+                    partial = discord.PartialEmoji.from_str(emoji_str)
+                    if partial.id and not partial.is_usable():
                         details.append(
                             {
                                 "field": f"pairs[{i}].emoji",
                                 "message": f"Custom emoji '{emoji_str}' is not usable by the bot (source server is not shared with the bot).",
                             }
                         )
-            except Exception as e:
-                details.append({"field": f"pairs[{i}].emoji", "message": f"Invalid emoji format '{emoji_str}': {e}"})
+                except Exception as e:
+                    details.append({"field": f"pairs[{i}].emoji", "message": f"Invalid emoji format '{emoji_str}': {e}"})
 
             role_id_raw = p.get("role_id")
             if role_id_raw is None or not str(role_id_raw).isdigit():
@@ -723,6 +764,7 @@ def _validate_reaction_role_payload(data: dict, guild: discord.Guild) -> tuple[d
             validated_pairs.append(
                 {
                     "emoji": emoji_str,
+                    "label": label_str[:100],
                     "role_id": role_id,
                     "order": i,
                 }
@@ -818,10 +860,14 @@ async def reaction_role_post_handler(request: web.Request) -> web.Response:
         if style == "reactions":
             msg = await channel.send(content=content_str, embed=embed_obj)
             for p in pairs:
-                try:
-                    await msg.add_reaction(p["emoji"])
-                except Exception as e:
-                    logger.warning("Failed adding initial reaction %s: %s", p["emoji"], e)
+                emoji_val = p.get("emoji")
+                if emoji_val:
+                    emoji_obj = resolve_reaction_emoji(emoji_val)
+                    if emoji_obj:
+                        try:
+                            await msg.add_reaction(emoji_obj)
+                        except Exception as e:
+                            logger.warning("Failed adding initial reaction %s: %s", emoji_obj, e)
         else:
             # For buttons or select: send message first to acquire message_id,
             # then attach persistent view with custom_ids containing message_id.
@@ -911,21 +957,25 @@ async def reaction_role_put_handler(request: web.Request) -> web.Response:
 
                 # Reconcile reactions: add missing, clear removed
                 old_pairs = existing_doc.get("pairs", [])
-                old_emojis = {p.get("emoji") for p in old_pairs if isinstance(p, dict)}
-                new_emojis = {p["emoji"] for p in pairs}
+                old_emojis = {str(resolve_reaction_emoji(p.get("emoji"))) for p in old_pairs if isinstance(p, dict) and p.get("emoji")}
+                new_emojis = {str(resolve_reaction_emoji(p.get("emoji"))) for p in pairs if p.get("emoji")}
 
                 to_remove = old_emojis - new_emojis
                 to_add = new_emojis - old_emojis
 
                 for emoji in to_remove:
                     try:
-                        await target_msg.clear_reaction(emoji)
+                        resolved_emoji = resolve_reaction_emoji(emoji)
+                        if resolved_emoji:
+                            await target_msg.clear_reaction(resolved_emoji)
                     except Exception as e:
                         logger.warning("Error clearing reaction %s: %s", emoji, e)
 
                 for emoji in to_add:
                     try:
-                        await target_msg.add_reaction(emoji)
+                        resolved_emoji = resolve_reaction_emoji(emoji)
+                        if resolved_emoji:
+                            await target_msg.add_reaction(resolved_emoji)
                     except Exception as e:
                         logger.warning("Error adding reaction %s: %s", emoji, e)
             else:
@@ -1177,6 +1227,244 @@ async def tickets_config_put_handler(request: web.Request) -> web.Response:
     return await module_config_put_handler(request)
 
 
+async def giveaways_list_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        import math
+        import time as _pyTime
+
+        page = 1
+        limit = 50
+        try:
+            page = max(1, int(request.query.get("page", 1)))
+            limit = min(100, max(1, int(request.query.get("limit", 50))))
+        except (ValueError, TypeError):
+            pass
+
+        giveaways = []
+        total_count = 0
+
+        if database.db is not None:
+            base_query = {"guild_id": {"$in": [guild.id, str(guild.id)]}}
+            total_count = await database.db.giveaways.count_documents(base_query)
+
+            cursor = (
+                database.db.giveaways.find(base_query)
+                .sort("_id", -1)
+                .skip((page - 1) * limit)
+                .limit(limit)
+            )
+            now_ts = _pyTime.time()
+            async for doc in cursor:
+                doc["_id"] = str(doc.get("_id", ""))
+                if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
+                    doc["created_at"] = doc["created_at"].isoformat()
+                if "concluded_at" in doc and hasattr(doc["concluded_at"], "isoformat"):
+                    doc["concluded_at"] = doc["concluded_at"].isoformat()
+
+                # Normalize concluded flag
+                doc["concluded"] = bool(
+                    doc.get("concluded")
+                    or doc.get("status") == "ended"
+                    or doc.get("concluded_at")
+                    or doc.get("Winners")
+                    or doc.get("winners")
+                    or (doc.get("end_time") and doc["end_time"] <= now_ts)
+                )
+                giveaways.append(doc)
+
+        config_doc = {}
+        if database.db is not None:
+            config_doc = await database.db.giveaways_config.find_one(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}}
+            ) or {}
+            config_doc.pop("_id", None)
+
+        total_pages = max(1, math.ceil(total_count / limit)) if total_count > 0 else 1
+
+        return web.json_response(
+            {
+                "giveaways": giveaways,
+                "config": config_doc,
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "limit": limit,
+                    "total_pages": total_pages,
+                },
+            }
+        )
+    except Exception as e:
+        logger.exception("Error in giveaways_list_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def giveaways_create_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        body = await request.json()
+        channel_id = int(body.get("channel_id"))
+        title = str(body.get("title", "Giveaway")).strip()
+        winners_count = int(body.get("winners_count", 1))
+        duration_seconds = int(body.get("duration_seconds", 3600))
+        description = str(body.get("description", "")).strip()
+        image_url = str(body.get("image_url", "")).strip()
+
+        required_role_ids = [int(r) for r in body.get("required_role_ids", []) if str(r).isdigit()]
+        role_multipliers = {}
+        for r, m in (body.get("role_multipliers") or {}).items():
+            if str(r).isdigit() and str(m).isdigit():
+                role_multipliers[int(r)] = int(m)
+
+        from cogs.giveaway_cog import launch_dashboard_giveaway
+
+        bot = request.app.get("bot")
+        result = await launch_dashboard_giveaway(
+            bot=bot,
+            guild_id=guild.id,
+            channel_id=channel_id,
+            creator_id=bot.user.id,
+            title=title,
+            winners_count=winners_count,
+            duration_seconds=duration_seconds,
+            description=description,
+            image_url=image_url,
+            required_role_ids=required_role_ids,
+            role_multipliers=role_multipliers,
+        )
+        return web.json_response({"status": "ok", **result})
+    except Exception as e:
+        logger.exception("Error in giveaways_create_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def giveaways_reroll_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    message_id = request.match_info.get("message_id")
+    if not message_id:
+        return web.json_response({"error": "missing_message_id"}, status=400)
+
+    try:
+        if database.db is None:
+            return web.json_response({"error": "database_unavailable"}, status=503)
+
+        doc = await database.db.giveaways.find_one({"message_id": str(message_id)})
+        if not doc:
+            return web.json_response({"error": "giveaway_not_found"}, status=404)
+
+        entrants = doc.get("Entrants") or doc.get("entrants") or []
+        if not entrants:
+            return web.json_response({"error": "no_entrants"}, status=400)
+
+        from cogs.giveaway_cog import weighted_sample_without_replacement
+
+        count = min(int(doc.get("Winner") or doc.get("winners_count") or 1), len(entrants))
+        user_weights = doc.get("UserWeights") or {}
+        weights = [float(user_weights.get(str(u), 1.0)) for u in entrants]
+        new_winners = weighted_sample_without_replacement(entrants, weights, count)
+
+        # Notify in channel
+        bot = request.app.get("bot")
+        channel_id = doc.get("channel_id")
+        if channel_id:
+            channel = guild.get_channel(int(channel_id))
+            if channel and isinstance(channel, discord.TextChannel):
+                winner_mentions = [f"<@{w}>" for w in new_winners]
+                title = doc.get("Title") or doc.get("title") or "Giveaway"
+                await channel.send(
+                    f"🎊 **Dashboard Reroll:** Congratulations {' '.join(winner_mentions)}! You won the **{title}**! 🎊"
+                )
+
+        return web.json_response({"status": "ok", "winners": [str(w) for w in new_winners]})
+    except Exception as e:
+        logger.exception("Error in giveaways_reroll_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def giveaways_config_put_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        body = await request.json()
+        logs_channel_id = body.get("logs_channel_id")
+        manager_role_ids = body.get("manager_role_ids") or []
+
+        update_doc = {
+            "guild_id": guild.id,
+            "logs_channel_id": int(logs_channel_id) if logs_channel_id else None,
+            "manager_role_ids": [str(r) for r in manager_role_ids],
+        }
+
+        if database.db is not None:
+            await database.db.giveaways_config.update_one(
+                {"guild_id": guild.id},
+                {"$set": update_doc},
+                upsert=True,
+            )
+
+        return web.json_response({"status": "ok", "config": update_doc})
+    except Exception as e:
+        logger.exception("Error in giveaways_config_put_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def moderation_cases_list_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        cases = []
+        if database.db is not None:
+            cursor = database.db.moderation_cases.find(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}}
+            ).sort("case_id", -1).limit(50)
+            async for doc in cursor:
+                doc["_id"] = str(doc.get("_id", ""))
+                if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
+                    doc["created_at"] = doc["created_at"].isoformat()
+                cases.append(doc)
+
+        return web.json_response(cases)
+    except Exception as e:
+        logger.exception("Error in moderation_cases_list_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def moderation_case_delete_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    case_id_raw = request.match_info.get("case_id")
+    if not case_id_raw or not case_id_raw.isdigit():
+        return web.json_response({"error": "invalid_case_id"}, status=400)
+
+    try:
+        if database.db is not None:
+            res = await database.db.moderation_cases.delete_one(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "case_id": int(case_id_raw)}
+            )
+            if res.deleted_count == 0:
+                return web.json_response({"error": "case_not_found"}, status=404)
+
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in moderation_case_delete_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
 def create_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth_middleware])
     app["bot"] = bot
@@ -1203,6 +1491,16 @@ def create_app(bot) -> web.Application:
         app.router.add_post(f"{prefix}/tickets/publish-panel", tickets_publish_panel_handler)
         app.router.add_get(f"{prefix}/tickets/config", tickets_config_get_handler)
         app.router.add_put(f"{prefix}/tickets/config", tickets_config_put_handler)
+
+        # Giveaways endpoints
+        app.router.add_get(f"{prefix}/giveaways", giveaways_list_handler)
+        app.router.add_post(f"{prefix}/giveaways", giveaways_create_handler)
+        app.router.add_post(f"{prefix}/giveaways/{{message_id}}/reroll", giveaways_reroll_handler)
+        app.router.add_put(f"{prefix}/giveaways/config", giveaways_config_put_handler)
+
+        # Moderation endpoints
+        app.router.add_get(f"{prefix}/moderation/cases", moderation_cases_list_handler)
+        app.router.add_delete(f"{prefix}/moderation/cases/{{case_id}}", moderation_case_delete_handler)
 
     app.router.add_get("/modules", modules_list_handler)
 

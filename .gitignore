@@ -41,8 +41,12 @@ build/
 # AI agents, specs, internal memory & docs
 .claude/
 **/.claude/
+.agents/
+**/.agents/
 .specify/
 **/.specify/
+specs/
+**/specs/
 MEMORY.md
 docs/
 .commandcode/

@@ -5,9 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Award,
+  Gift,
   LayoutDashboard,
   Search,
   Server,
+  ShieldCheck,
   Tags,
   Terminal,
   Ticket,
@@ -39,9 +41,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const isSettingsActive = pathname === "/settings";
   const isReactionRolesActive = pathname.startsWith("/automation/reaction-roles");
   const isWelcomeActive = pathname.startsWith("/automation/welcome");
+  const isModerationActive = pathname.startsWith("/automation/moderation");
   const isLevelingActive = pathname.startsWith("/community/leveling");
   const isTempVoiceActive = pathname.startsWith("/community/temp-voice");
   const isTicketsActive = pathname.startsWith("/community/tickets");
+  const isGiveawaysActive = pathname.startsWith("/community/giveaways");
 
   const filteredGroups = React.useMemo(() => {
     const groups = [
@@ -67,6 +71,12 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         label: "AUTOMATION",
         items: [
           {
+            title: "Moderation & AutoMod",
+            href: "/automation/moderation",
+            icon: ShieldCheck,
+            isActive: isModerationActive,
+          },
+          {
             title: "Reaction Roles",
             href: "/automation/reaction-roles",
             icon: Tags,
@@ -83,6 +93,12 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       {
         label: "COMMUNITY",
         items: [
+          {
+            title: "Giveaways",
+            href: "/community/giveaways",
+            icon: Gift,
+            isActive: isGiveawaysActive,
+          },
           {
             title: "Leveling & XP",
             href: "/community/leveling",
@@ -138,6 +154,8 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     isLevelingActive,
     isTempVoiceActive,
     isTicketsActive,
+    isGiveawaysActive,
+    isModerationActive,
   ]);
 
   return (

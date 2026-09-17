@@ -47,6 +47,11 @@ export const ticketsConfigSchema = z.object({
     .regex(/^\d+$/, "Channel ID must be a valid Discord ID")
     .nullable()
     .default(null),
+  logs_channel_id: z
+    .string()
+    .regex(/^\d+$/, "Logs channel ID must be a valid Discord ID")
+    .nullable()
+    .default(null),
   panel_content: z.string().max(2000, "Content cannot exceed 2000 characters").default(""),
   panel_embed: panelEmbedSchema,
   button_label: z
@@ -55,6 +60,18 @@ export const ticketsConfigSchema = z.object({
     .max(80, "Button label cannot exceed 80 characters")
     .default("Open a ticket"),
   button_emoji: z.string().max(32, "Emoji is too long").default(""),
+  max_open_tickets: z
+    .number()
+    .int("Must be an integer")
+    .min(1, "Must allow at least 1 ticket")
+    .max(20, "Maximum 20 concurrent tickets")
+    .default(1),
+  cooldown_seconds: z
+    .number()
+    .int("Must be an integer")
+    .min(0, "Cooldown cannot be negative")
+    .max(86400, "Maximum cooldown is 24 hours")
+    .default(0),
   categories: z
     .array(ticketCategorySchema)
     .max(25, "Maximum 25 categories allowed")
@@ -122,6 +139,7 @@ export interface PublishPanelResponse {
 
 export const DEFAULT_TICKETS_CONFIG: TicketsConfig = {
   panel_channel_id: null,
+  logs_channel_id: null,
   panel_content: "Need help? Open a support ticket below.",
   panel_embed: {
     title: "Support Tickets",
@@ -130,6 +148,8 @@ export const DEFAULT_TICKETS_CONFIG: TicketsConfig = {
   },
   button_label: "Open a ticket",
   button_emoji: "",
+  max_open_tickets: 1,
+  cooldown_seconds: 0,
   categories: [
     {
       id: "general",

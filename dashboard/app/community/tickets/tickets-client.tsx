@@ -108,6 +108,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
 
   // Form states
   const [panelChannelId, setPanelChannelId] = useState<string | null>(null);
+  const [logsChannelId, setLogsChannelId] = useState<string | null>(null);
   const [panelContent, setPanelContent] = useState<string>("");
   const [panelEmbedTitle, setPanelEmbedTitle] = useState<string>("Support Tickets");
   const [panelEmbedDescription, setPanelEmbedDescription] = useState<string>(
@@ -116,6 +117,8 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
   const [panelEmbedColor, setPanelEmbedColor] = useState<string>("#5865F2");
   const [buttonLabel, setButtonLabel] = useState<string>("Open a ticket");
   const [buttonEmoji, setButtonEmoji] = useState<string>("");
+  const [maxOpenTickets, setMaxOpenTickets] = useState<number>(1);
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
   const [categories, setCategories] = useState<TicketCategory[]>([
     {
       id: "general",
@@ -189,12 +192,15 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
       const cfg = configData.config || DEFAULT_TICKETS_CONFIG;
       setSavedConfig(cfg);
       setPanelChannelId(cfg.panel_channel_id ?? null);
+      setLogsChannelId(cfg.logs_channel_id ?? null);
       setPanelContent(cfg.panel_content ?? "");
       setPanelEmbedTitle(cfg.panel_embed?.title ?? "Support Tickets");
       setPanelEmbedDescription(cfg.panel_embed?.description ?? "Select a category below to open a ticket.");
       setPanelEmbedColor(cfg.panel_embed?.color ?? "#5865F2");
       setButtonLabel(cfg.button_label ?? "Open a ticket");
       setButtonEmoji(cfg.button_emoji ?? "");
+      setMaxOpenTickets(cfg.max_open_tickets ?? 1);
+      setCooldownSeconds(cfg.cooldown_seconds ?? 0);
       setCategories(Array.isArray(cfg.categories) && cfg.categories.length > 0 ? cfg.categories : DEFAULT_TICKETS_CONFIG.categories);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load Tickets configuration";
@@ -236,6 +242,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
   // Check dirty state
   const isDirty = useMemo(() => {
     if (panelChannelId !== (savedConfig.panel_channel_id ?? null)) return true;
+    if (logsChannelId !== (savedConfig.logs_channel_id ?? null)) return true;
     if (panelContent !== (savedConfig.panel_content ?? "")) return true;
     if (panelEmbedTitle !== (savedConfig.panel_embed?.title ?? "Support Tickets")) return true;
     if (panelEmbedDescription !== (savedConfig.panel_embed?.description ?? "Select a category below to open a ticket."))
@@ -243,15 +250,20 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
     if (panelEmbedColor !== (savedConfig.panel_embed?.color ?? "#5865F2")) return true;
     if (buttonLabel !== (savedConfig.button_label ?? "Open a ticket")) return true;
     if (buttonEmoji !== (savedConfig.button_emoji ?? "")) return true;
+    if (maxOpenTickets !== (savedConfig.max_open_tickets ?? 1)) return true;
+    if (cooldownSeconds !== (savedConfig.cooldown_seconds ?? 0)) return true;
     return JSON.stringify(categories) !== JSON.stringify(savedConfig.categories ?? []);
   }, [
     panelChannelId,
+    logsChannelId,
     panelContent,
     panelEmbedTitle,
     panelEmbedDescription,
     panelEmbedColor,
     buttonLabel,
     buttonEmoji,
+    maxOpenTickets,
+    cooldownSeconds,
     categories,
     savedConfig,
   ]);
@@ -260,12 +272,15 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
   const handleDiscardChanges = () => {
     if (!isDirty) return;
     setPanelChannelId(savedConfig.panel_channel_id ?? null);
+    setLogsChannelId(savedConfig.logs_channel_id ?? null);
     setPanelContent(savedConfig.panel_content ?? "");
     setPanelEmbedTitle(savedConfig.panel_embed?.title ?? "Support Tickets");
     setPanelEmbedDescription(savedConfig.panel_embed?.description ?? "Select a category below to open a ticket.");
     setPanelEmbedColor(savedConfig.panel_embed?.color ?? "#5865F2");
     setButtonLabel(savedConfig.button_label ?? "Open a ticket");
     setButtonEmoji(savedConfig.button_emoji ?? "");
+    setMaxOpenTickets(savedConfig.max_open_tickets ?? 1);
+    setCooldownSeconds(savedConfig.cooldown_seconds ?? 0);
     setCategories(savedConfig.categories ?? DEFAULT_TICKETS_CONFIG.categories);
     setFieldErrors({});
     toast.info("Unsaved changes discarded");
@@ -356,6 +371,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
 
     const payload: TicketsConfig = {
       panel_channel_id: panelChannelId,
+      logs_channel_id: logsChannelId,
       panel_content: panelContent,
       panel_embed: {
         title: panelEmbedTitle || null,
@@ -363,7 +379,9 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
         color: panelEmbedColor || null,
       },
       button_label: buttonLabel,
-      button_emoji: buttonEmoji,
+      button_emoji: buttonEmoji.trim() || "🎫",
+      max_open_tickets: Number(maxOpenTickets) || 1,
+      cooldown_seconds: Number(cooldownSeconds) || 0,
       categories: categories,
     };
 
@@ -537,6 +555,14 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
                     ),
                   },
                   {
+                    label: "Logs Channel",
+                    value: resolveChannelName(
+                      savedConfig.logs_channel_id,
+                      channels,
+                      "None"
+                    ),
+                  },
+                  {
                     label: "Title",
                     value: savedConfig.panel_embed?.title || "Support Tickets",
                   },
@@ -593,6 +619,36 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
                 />
                 {fieldErrors["panel_channel_id"] && (
                   <p className="text-xs text-destructive">{fieldErrors["panel_channel_id"]}</p>
+                )}
+              </div>
+
+              {/* Ticket Logs Channel */}
+              <div className="space-y-2">
+                <Label htmlFor="logs-channel" className="text-sm font-medium">
+                  Ticket Logs Channel
+                </Label>
+                <SelectSearchable
+                  id="logs-channel"
+                  value={logsChannelId ?? null}
+                  onValueChange={(val) =>
+                    setLogsChannelId(val && val !== "none" ? val : null)
+                  }
+                  options={[
+                    { value: "none", label: "None (Disabled)" },
+                    ...textChannels.map((ch) => ({
+                      value: ch.id,
+                      label: `#${ch.name}`,
+                    })),
+                  ]}
+                  placeholder="Select a logs channel (optional)..."
+                  searchPlaceholder="Search text channels..."
+                  aria-invalid={!!fieldErrors["logs_channel_id"]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Transcripts and ticket lifecycle events (opened, claimed, closed, deleted) will be dispatched here.
+                </p>
+                {fieldErrors["logs_channel_id"] && (
+                  <p className="text-xs text-destructive">{fieldErrors["logs_channel_id"]}</p>
                 )}
               </div>
 
@@ -727,6 +783,64 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
                   {fieldErrors["button_emoji"] && (
                     <p className="text-xs text-destructive">{fieldErrors["button_emoji"]}</p>
                   )}
+                </div>
+              </div>
+
+              {/* Ticket Limits & Cooldown */}
+              <div className="border border-border/60 rounded-lg p-4 space-y-4 bg-muted/20">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="size-3.5" />
+                  Limits & Cooldown
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="max-open-tickets" className="text-xs font-medium">
+                      Max Concurrent Tickets Per Member
+                    </Label>
+                    <Input
+                      id="max-open-tickets"
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxOpenTickets}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setMaxOpenTickets(isNaN(val) ? 1 : Math.max(1, Math.min(20, val)));
+                      }}
+                      placeholder="1"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Maximum number of active tickets a single user can have open simultaneously (1–20).
+                    </p>
+                    {fieldErrors["max_open_tickets"] && (
+                      <p className="text-xs text-destructive">{fieldErrors["max_open_tickets"]}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="cooldown-seconds" className="text-xs font-medium">
+                      Creation Cooldown (Seconds)
+                    </Label>
+                    <Input
+                      id="cooldown-seconds"
+                      type="number"
+                      min={0}
+                      max={86400}
+                      value={cooldownSeconds}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setCooldownSeconds(isNaN(val) ? 0 : Math.max(0, Math.min(86400, val)));
+                      }}
+                      placeholder="0"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Cooldown before a user can open another ticket (0 to disable, e.g. 60s = 1m, 300s = 5m).
+                    </p>
+                    {fieldErrors["cooldown_seconds"] && (
+                      <p className="text-xs text-destructive">{fieldErrors["cooldown_seconds"]}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardContent>

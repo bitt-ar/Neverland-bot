@@ -8,11 +8,11 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 from core import config, database
-from core.images import circle
+from core.images import circle, load_background_image, validate_and_save_background
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BACKGROUND = "https://n9.cl/pnc5h"
+DEFAULT_BACKGROUND = "assets/back/1.png"
 FONT_PATH = str(config.BASE_DIR / "assets" / "fonts" / "Bodo Amat.ttf")
 
 
@@ -74,31 +74,62 @@ def render_rank_card(
         base = Image.open(themes_dir / "purple.png").convert("RGBA")
 
     progress_bar = _new_bar(439, 420, 420, 31, progress, fg=bar_color)
-    response = requests.get(background_url, timeout=10)
-    background = Image.open(BytesIO(response.content))
-    background = background.resize((1000, 512), Image.LANCZOS).convert("RGBA")
-    response = requests.get(pfp_url, timeout=10)
-    pfp = Image.open(BytesIO(response.content))
+
+    raw_bg = load_background_image(background_url)
+    if raw_bg.mode != "RGBA":
+        raw_bg = raw_bg.convert("RGBA")
+
+    # Crop out transparent padding/margins if present (fixes bundled backgrounds)
+    bbox = raw_bg.getbbox()
+    if bbox and (bbox[2] - bbox[0] > 50) and (bbox[3] - bbox[1] > 50):
+        raw_bg = raw_bg.crop(bbox)
+
+    # Scale with aspect-ratio cover mode to perfectly fill 1000x512
+    bg_w, bg_h = raw_bg.size
+    target_w, target_h = 1000, 512
+    scale = max(target_w / bg_w, target_h / bg_h)
+    new_w = max(target_w, int(bg_w * scale))
+    new_h = max(target_h, int(bg_h * scale))
+    scaled_bg = raw_bg.resize((new_w, new_h), Image.LANCZOS)
+
+    left = (new_w - target_w) // 2
+    top = (new_h - target_h) // 2
+    background = scaled_bg.crop((left, top, left + target_w, top + target_h))
+
+    # Composite over solid dark base to guarantee zero transparent holes
+    solid_base = Image.new("RGBA", (1000, 512), (20, 20, 25, 255))
+    background = Image.alpha_composite(solid_base, background)
+
+    try:
+        response = requests.get(pfp_url, timeout=10)
+        pfp = Image.open(BytesIO(response.content))
+    except Exception:
+        pfp = Image.new("RGBA", (213, 213), (70, 70, 80, 255))
     pfp = circle(pfp, (213, 213))
-    xp = f"{xp}/{xp_next_level}"
-    disname = f"{disname[:7]}.." if len(disname) > 7 else disname
+
+    xp_text = f"{xp}/{xp_next_level}"
+    disname = f"{disname[:10]}.." if len(disname) > 10 else disname
     disname = disname.upper()
     level_next = f"LEVEL {level + 1}"
-    level = f"LEVEL {level}"
-    joined = f"Server Join Date \n {joined}"
-    rank = f"#{rank}"
-    font = ImageFont.truetype(FONT_PATH, 50)
-    font2 = ImageFont.truetype(FONT_PATH, 35)
-    font3 = ImageFont.truetype(FONT_PATH, 20)
-    font4 = ImageFont.truetype(FONT_PATH, 70)
-    font5 = ImageFont.truetype(FONT_PATH, 80)
+    level_str = f"LEVEL {level}"
+    joined_text = f"Server Join Date\n{joined}"
+    rank_str = f"#{rank}"
+
+    # Refined, proportionate typography
+    font_name = ImageFont.truetype(FONT_PATH, 42)
+    font_join = ImageFont.truetype(FONT_PATH, 25)
+    font_bar = ImageFont.truetype(FONT_PATH, 20)
+    font_level = ImageFont.truetype(FONT_PATH, 50)
+    font_rank = ImageFont.truetype(FONT_PATH, 60)
+
     draw = ImageDraw.Draw(base)
-    draw.text((240, 109), disname, font=font, fill=(255, 255, 255))
-    draw.text((36, 300), joined, font=font2, fill=(255, 255, 255))
-    draw.text((36, 407), level, font=font4, fill=(255, 255, 255))
-    draw.text((835, 440), level_next, font=font3, fill=(255, 255, 255))
-    draw.text((504, 440), xp, font=font3, fill=(255, 255, 255))
-    draw.text((807, 38), rank, font=font5, fill=(255, 255, 255))
+    draw.text((240, 115), disname, font=font_name, fill=(255, 255, 255))
+    draw.text((45, 310), joined_text, font=font_join, fill=(255, 255, 255))
+    draw.text((45, 415), level_str, font=font_level, fill=(255, 255, 255))
+    draw.text((835, 440), level_next, font=font_bar, fill=(255, 255, 255))
+    draw.text((504, 440), xp_text, font=font_bar, fill=(255, 255, 255))
+    draw.text((820, 48), rank_str, font=font_rank, fill=(255, 255, 255))
+
     base.paste(pfp, (13, 37), pfp)
     base.paste(progress_bar, (50, 50), progress_bar)
     background.paste(base, (0, 0), base)
@@ -252,10 +283,10 @@ class LevelingCommandsCog(commands.Cog):
         except Exception as e:
             logger.warning("Error generating rank card: %s", e)
             await database.set_level_field(
-                interaction.guild_id, member.id, "background", DEFAULT_BACKGROUND
+                interaction.guild_id, member.id, "background", None
             )
             await interaction.followup.send(
-                "Your background link is not working — reset to the default. Try again."
+                "Error rendering custom background — reset to default. Please run /rank again."
             )
 
     @app_commands.command(name="leaderboard", description="Top 10 members in this server")
@@ -304,32 +335,54 @@ class LevelingCommandsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="add_background", description="Add a background by link")
-    async def add_background(self, interaction: discord.Interaction, link: str):
+    @app_commands.command(
+        name="add_background",
+        description="Upload and set a custom rank card background (image file)",
+    )
+    @app_commands.describe(image="Image file for your custom rank card (PNG, JPG, WEBP, max 8MB)")
+    async def add_background(self, interaction: discord.Interaction, image: discord.Attachment):
         if not await self._check_enabled(interaction):
             return
-        if not link.startswith("https"):
+
+        if not image.content_type or not any(
+            image.content_type.startswith(f"image/{fmt}") for fmt in ("png", "jpeg", "jpg", "webp")
+        ):
             await interaction.response.send_message(
-                f"{interaction.user.mention} Please add an https link.", ephemeral=True
+                "❌ Please upload a valid image file (.png, .jpg, .jpeg, or .webp).",
+                ephemeral=True,
             )
             return
-        await database.set_level_field(
-            interaction.guild_id, interaction.user.id, "background", link
-        )
-        await interaction.response.send_message(
-            f"{interaction.user.mention} background added to your card.", ephemeral=True
-        )
 
-    @app_commands.command(name="delete_background", description="Restore the default background")
-    async def delete_background(self, interaction: discord.Interaction):
-        if not await self._check_enabled(interaction):
+        if image.size > 8 * 1024 * 1024:
+            await interaction.response.send_message(
+                "❌ Image file size exceeds the 8 MB limit.",
+                ephemeral=True,
+            )
             return
-        await database.set_level_field(
-            interaction.guild_id, interaction.user.id, "background", DEFAULT_BACKGROUND
-        )
-        await interaction.response.send_message(
-            f"{interaction.user.mention} background has been deleted.", ephemeral=True
-        )
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            image_bytes = await image.read()
+            saved_path = validate_and_save_background(
+                image_bytes=image_bytes,
+                guild_id=interaction.guild_id,
+                user_id=interaction.user.id,
+            )
+            await database.set_level_field(
+                interaction.guild_id, interaction.user.id, "background", saved_path
+            )
+            await interaction.followup.send(
+                f"✅ {interaction.user.mention} Your custom background has been uploaded and saved successfully!",
+                ephemeral=True,
+            )
+        except ValueError as ve:
+            await interaction.followup.send(f"❌ Upload rejected: {ve}", ephemeral=True)
+        except Exception as e:
+            logger.warning("Error saving custom background for user %s: %s", interaction.user.id, e)
+            await interaction.followup.send(
+                "❌ Failed to process and save image. Please try again with a valid PNG/JPG image.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="xp", description="Give XP to a member (admin)")
     @app_commands.default_permissions(administrator=True)

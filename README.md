@@ -37,12 +37,13 @@ The platform provides dedicated sub-engines for customer support ticketing, temp
 
 ## Key Modules
 
-- **Support Ticket System**: Race-safe ticket channel creation with atomic database counters, automatic private channel isolation, permission assignment, and staff management controls (claim, close, reopen, user access).
+- **Support Ticket System**: Race-safe ticket channel creation with atomic database counters, automatic private channel isolation, persistent interactive components (`timeout=None`) that survive bot restarts, configurable concurrent ticket limits, cooldown periods, and staff controls (claim, close, reopen, user access, delete).
+- **Moderation & Audit Cases**: Complete moderation suite featuring warn, mute/timeout, kick, and ban actions with automated case tracking, punishment history, DM notices, and audit logging.
+- **Giveaway Engine**: Interactive giveaway creator supporting image embeds, duration countdowns, entry multipliers for bonus roles, required participation roles, manager role delegation, and persistent reroll commands/context menus.
 - **Temporary Voice Lounges**: Dynamic voice channel generation upon trigger join, dynamic ownership delegation, permission locks, member limits, rename controls, and automated channel cleanup when empty.
-- **Leveling & Experience**: Message XP tracking with per-user rate-limiting, voice activity XP accumulation, customizable level-up announcements, and tiered role rewards.
+- **Leveling & Experience**: Message XP tracking with per-user rate-limiting, voice activity XP accumulation, customizable level-up announcements, customizable rank cards, and tiered role rewards.
 - **Reaction Roles**: Multi-mode role distribution supporting classic reactions, persistent Discord component buttons, and interactive dropdown selection menus with live configuration sync.
-- **Welcome & Onboarding**: Greeting announcements, automatic join role assignments (`Active member` and `BOT`), and customizable welcome cards rendered dynamically via PIL (Pillow).
-- **Giveaway Engine**: Slash command giveaway creator with automated countdowns, randomized winner selection, and reroll support.
+- **Welcome & Onboarding**: Greeting announcements, automatic join role assignments, and customizable welcome cards rendered dynamically via PIL (Pillow).
 - **Control Plane IPC**: Real-time bidirectional control bridge between Next.js and Discord bot via secret-authenticated internal HTTP APIs.
 
 ---
@@ -52,6 +53,8 @@ The platform provides dedicated sub-engines for customer support ticketing, temp
 | Module Identifier | Status | Display Title | Dashboard Route | Required Discord Permissions |
 |---|---|---|---|---|
 | `tickets` | Active | Support Tickets | `/community/tickets` | `manage_channels`, `manage_roles` |
+| `giveaways` | Active | Giveaways | `/community/giveaways` | `manage_guild`, `manage_messages`, `embed_links` |
+| `moderation` | Active | Moderation & Security | `/automation/moderation` | `moderate_members`, `kick_members`, `ban_members`, `manage_messages` |
 | `temp_voice` | Active | Temporary Voice | `/community/temp-voice` | `manage_channels`, `move_members` |
 | `leveling` | Active | Leveling & XP | `/community/leveling` | `manage_roles`, `send_messages`, `embed_links` |
 | `reaction_roles` | Active | Reaction Roles | `/automation/reaction-roles` | `manage_roles`, `send_messages`, `add_reactions`, `embed_links` |
@@ -61,30 +64,33 @@ The platform provides dedicated sub-engines for customer support ticketing, temp
 
 ## Slash Commands Reference
 
-All slash commands are synced from a single global source to prevent duplicate command entries in the Discord interface.
+All slash commands are synced globally from a single clean source (28 total slash commands).
 
 | Command | Scope | Description | Required Permissions |
 |---|---|---|---|
 | `/help` | Global | Display the interactive command index and module guide | Everyone |
-| `/sync` | Global | Force sync application slash command tree to Discord | Administrator |
-| `/rank` | Global | View your level, XP progression, and server rank | Everyone |
-| `/leaderboard` | Global | Display the top ranked members in the server | Everyone |
-| `/setlevel` | Global | Manually set a target user experience points or level | Administrator |
-| `/ticket send_panel`| Global | Deploy an interactive support ticket creation panel | Manage Channels |
-| `/ticket close` | Global | Close the current support ticket channel | Manage Channels |
-| `/ticket add` | Global | Add a user to the current support ticket | Manage Channels |
-| `/ticket remove` | Global | Remove a user from the current support ticket | Manage Channels |
-| `/tempvoice setup` | Global | Deploy the temporary voice creation hub | Manage Channels |
-| `/tempvoice lock` | Global | Restrict access to your temporary voice channel | Channel Owner |
-| `/tempvoice unlock` | Global | Re-open your temporary voice channel to everyone | Channel Owner |
-| `/tempvoice name` | Global | Rename your temporary voice channel | Channel Owner |
-| `/tempvoice limit` | Global | Set maximum member capacity for your channel | Channel Owner |
-| `/reactionrole create` | Global | Launch the reaction role message creator | Manage Roles |
-| `/welcome test` | Global | Preview the dynamic welcome card in the target channel | Manage Guild |
-| `/welcome setchannel` | Global | Designate the primary welcome channel | Manage Guild |
-| `/giveaway start` | Global | Start a new giveaway with custom duration and prize | Manage Guild |
-| `/giveaway end` | Global | Conclude an active giveaway immediately | Manage Guild |
-| `/giveaway reroll` | Global | Randomly select a new winner for a completed giveaway | Manage Guild |
+| `/avatar` | Global | Display avatar of yourself or another server member | Everyone |
+| `/clear` | Global | Clean up recent messages in the channel | Manage Messages |
+| `/rank` | Global | View your level, XP progression, and server rank card | Everyone |
+| `/leaderboard` | Global | Display the top 10 ranked members in the server | Everyone |
+| `/theme` | Global | Customize your rank card theme | Everyone |
+| `/add_background` | Global | Upload a custom rank card background image | Everyone |
+| `/giveaway` | Global | Launch an interactive giveaway modal wizard | Admin / Giveaway Manager |
+| `/giveaway_logs` | Global | Set or view the channel for giveaway results logs | Admin / Giveaway Manager |
+| `/reroll` | Global | Reroll a completed giveaway to pick new winners | Admin / Giveaway Manager |
+| `Apps > reroll` | Context Menu | Right-click a giveaway message to reroll winners | Admin / Giveaway Manager |
+| `/tickets status` | Global | View ticket configuration, panel status, and active counts | Manage Channels |
+| `/tickets publish-panel` | Global | Deploy or update the persistent support ticket panel | Manage Channels |
+| `/tickets logs` | Global | Configure the ticket audit & transcript logs channel | Manage Channels |
+| `/warn`, `/warnings` | Global | Issue and review server member infractions | Moderate Members |
+| `/timeout`, `/untimeout`| Global | Temporarily mute or unmute a server member | Moderate Members |
+| `/kick`, `/ban`, `/unban`| Global | Enforce server moderation actions with case tracking | Kick / Ban Members |
+| `/modlogs` | Global | View moderation history and cases for a user | Moderate Members |
+| `/tempvoice` | Global | View active temporary voice lounges | Everyone |
+| `/setup` | Global | Configure server welcome/leave settings | Administrator |
+| `/levelroles` | Global | Configure tiered role rewards for leveling | Administrator |
+| `/reactionrole` | Global | Launch the reaction roles wizard | Manage Roles |
+| `/activity` | Global | View weekly server voice & message analytics | Everyone |
 
 ---
 

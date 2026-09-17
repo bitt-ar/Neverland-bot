@@ -14,37 +14,50 @@ from core import database
 logger = logging.getLogger(__name__)
 
 
+import io
+
 from bot.modules.tickets.helpers import (
     build_ticket_overwrites,
+    generate_ticket_transcript,
     is_ticket_staff,
     render_ticket_channel_name,
+    sanitize_button_emoji,
     sanitize_channel_name,
 )
 
 
-def build_panel_message_view(button_label: str = "Open a ticket", button_emoji: str = "🎫") -> discord.ui.View:
-    view = discord.ui.View(timeout=None)
-    view.add_item(
-        discord.ui.Button(
-            label=button_label[:80],
-            emoji=button_emoji if button_emoji else None,
-            style=discord.ButtonStyle.primary,
-            custom_id="tk:open",
+class PersistentTicketPanelView(discord.ui.View):
+    """Persistent view for the ticket creation panel that survives bot restarts indefinitely."""
+
+    def __init__(self, button_label: str = "Open a ticket", button_emoji: Optional[str] = "🎫"):
+        super().__init__(timeout=None)
+        clean_emoji = sanitize_button_emoji(button_emoji) or "🎫"
+        self.add_item(
+            discord.ui.Button(
+                label=(button_label or "Open a ticket")[:80],
+                emoji=clean_emoji,
+                style=discord.ButtonStyle.primary,
+                custom_id="tk:open",
+            )
         )
-    )
-    return view
+
+
+def build_panel_message_view(
+    button_label: str = "Open a ticket", button_emoji: Optional[str] = "🎫"
+) -> PersistentTicketPanelView:
+    return PersistentTicketPanelView(button_label=button_label, button_emoji=button_emoji)
 
 
 def build_category_select_view(categories: list[dict]) -> discord.ui.View:
     view = discord.ui.View(timeout=180)
     options = []
     for cat in categories[:25]:
-        emoji = cat.get("emoji") or "🎫"
+        cat_emoji = sanitize_button_emoji(cat.get("emoji"))
         options.append(
             discord.SelectOption(
                 label=cat.get("name", "Support")[:100],
                 value=str(cat.get("id")),
-                emoji=emoji,
+                emoji=cat_emoji if cat_emoji else None,
                 description=f"Open a {cat.get('name')} ticket"[:100],
             )
         )
@@ -239,10 +252,82 @@ class TicketsEngineCog(commands.Cog):
         self.bot = bot
         self.module = module
         self._creating_users: set[int] = set()
+        try:
+            self.bot.add_view(PersistentTicketPanelView())
+        except Exception:
+            pass
+
+    async def cog_load(self) -> None:
+        """Register persistent ticket view so button works across all bot restarts indefinitely."""
+        try:
+            self.bot.add_view(PersistentTicketPanelView())
+            logger.info("Registered PersistentTicketPanelView on startup.")
+        except Exception as e:
+            logger.warning("Could not register PersistentTicketPanelView in cog_load: %s", e)
 
     @property
     def registry(self):
         return getattr(self.bot, "modules_registry", None)
+
+    async def _send_ticket_log(
+        self,
+        guild: discord.Guild,
+        action: str,
+        ticket_doc: dict,
+        actor: discord.Member | discord.User,
+        extra_fields: list[tuple[str, str]] = None,
+        transcript_bytes: bytes = None,
+        transcript_filename: str = None,
+    ):
+        """Dispatches rich audit logs to the configured tickets logs channel."""
+        try:
+            if not self.registry:
+                return
+            cfg = await self.registry.get_config(guild.id, "tickets")
+            logs_ch_id = cfg.get("logs_channel_id")
+            if not logs_ch_id:
+                return
+            logs_channel = guild.get_channel(int(logs_ch_id))
+            if not logs_channel or not isinstance(logs_channel, discord.TextChannel):
+                return
+
+            action_colors = {
+                "created": discord.Color.green(),
+                "claimed": discord.Color.blue(),
+                "closed": discord.Color.orange(),
+                "reopened": discord.Color.teal(),
+                "deleted": discord.Color.red(),
+            }
+            color = action_colors.get(action.lower(), discord.Color.blurple())
+            embed = discord.Embed(
+                title=f"🎫 Ticket Log: {action.capitalize()}",
+                color=color,
+                timestamp=discord.utils.utcnow(),
+            )
+            ticket_num = ticket_doc.get("number", 0)
+            embed.add_field(name="Ticket", value=f"#{ticket_num:04d}", inline=True)
+            embed.add_field(
+                name="Category",
+                value=ticket_doc.get("category_name") or ticket_doc.get("category_id") or "General",
+                inline=True,
+            )
+            embed.add_field(name="Action by", value=f"{actor.mention} (`{actor.id}`)", inline=True)
+            creator_id = ticket_doc.get("user_id")
+            if creator_id:
+                embed.add_field(name="Creator", value=f"<@{creator_id}> (`{creator_id}`)", inline=True)
+
+            if extra_fields:
+                for name, value in extra_fields:
+                    embed.add_field(name=name, value=value, inline=False)
+
+            file = None
+            if transcript_bytes:
+                fname = transcript_filename or f"ticket-{ticket_num:04d}-transcript.txt"
+                file = discord.File(io.BytesIO(transcript_bytes), filename=fname)
+
+            await logs_channel.send(embed=embed, file=file)
+        except Exception as e:
+            logger.warning("Error sending ticket log: %s", e)
 
     async def get_next_ticket_number(self, guild_id: int, category_id: str) -> int:
         """Atomically increment and return the next ticket counter for (guild_id, category_id)."""
@@ -312,8 +397,18 @@ class TicketsEngineCog(commands.Cog):
             )
 
         button_label = cfg.get("button_label") or "Open a ticket"
-        button_emoji = cfg.get("button_emoji") or "🎫"
+        raw_emoji = cfg.get("button_emoji")
+        button_emoji = sanitize_button_emoji(raw_emoji) or "🎫"
         view = build_panel_message_view(button_label, button_emoji)
+
+        if raw_emoji != button_emoji and database.db is not None:
+            try:
+                await database.db.module_configs.update_one(
+                    {"guild_id": guild.id, "module": "tickets"},
+                    {"$set": {"config.button_emoji": button_emoji}},
+                )
+            except Exception as e:
+                logger.debug("Could not auto-correct button_emoji in DB: %s", e)
 
         meta = None
         if database.db is not None:
@@ -327,6 +422,26 @@ class TicketsEngineCog(commands.Cog):
         old_msg_id = meta.get("panel_message_id") if meta else None
         old_ch_id = meta.get("panel_channel_id") if meta else None
 
+        async def _safe_send_or_edit(
+            target_msg: Optional[discord.Message], current_view: discord.ui.View
+        ) -> discord.Message:
+            try:
+                if target_msg:
+                    await target_msg.edit(content=content, embed=embed, view=current_view)
+                    return target_msg
+                else:
+                    return await channel.send(content=content, embed=embed, view=current_view)
+            except discord.HTTPException as err:
+                if err.code == 50035 or "Invalid emoji" in str(err):
+                    logger.warning("Invalid emoji detected when publishing panel (%s). Retrying with fallback emoji.", err)
+                    fallback_view = build_panel_message_view(button_label, "🎫")
+                    if target_msg:
+                        await target_msg.edit(content=content, embed=embed, view=fallback_view)
+                        return target_msg
+                    else:
+                        return await channel.send(content=content, embed=embed, view=fallback_view)
+                raise
+
         msg: Optional[discord.Message] = None
 
         if old_msg_id:
@@ -336,8 +451,7 @@ class TicketsEngineCog(commands.Cog):
                     # Same channel: try editing existing message
                     try:
                         existing_msg = await channel.fetch_message(old_msg_id_int)
-                        await existing_msg.edit(content=content, embed=embed, view=view)
-                        msg = existing_msg
+                        msg = await _safe_send_or_edit(existing_msg, view)
                     except (discord.NotFound, discord.HTTPException):
                         pass
                 else:
@@ -354,7 +468,7 @@ class TicketsEngineCog(commands.Cog):
                 logger.debug("Could not edit/cleanup previous panel message: %s", e)
 
         if msg is None:
-            msg = await channel.send(content=content, embed=embed, view=view)
+            msg = await _safe_send_or_edit(None, view)
 
         if database.db is not None:
             await database.db.tickets_meta.update_one(
@@ -398,6 +512,51 @@ class TicketsEngineCog(commands.Cog):
 
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
+
+            # Check max concurrent tickets limit
+            max_open_tickets = int(cfg.get("max_open_tickets") or 1)
+            if max_open_tickets > 0 and database.db is not None:
+                open_count = await database.db.tickets.count_documents({
+                    "guild_id": {"$in": [guild.id, str(guild.id)]},
+                    "user_id": {"$in": [user.id, str(user.id)]},
+                    "status": {"$in": ["open", "claimed"]},
+                })
+                if open_count >= max_open_tickets:
+                    await interaction.followup.send(
+                        f"❌ You already have **{open_count}** open ticket(s). The maximum allowed per member is **{max_open_tickets}**.",
+                        ephemeral=True,
+                    )
+                    return
+
+            # Check creation cooldown
+            cooldown_seconds = int(cfg.get("cooldown_seconds") or 0)
+            if cooldown_seconds > 0 and database.db is not None:
+                last_ticket = await database.db.tickets.find_one(
+                    {
+                        "guild_id": {"$in": [guild.id, str(guild.id)]},
+                        "user_id": {"$in": [user.id, str(user.id)]},
+                    },
+                    sort=[("created_at", -1)],
+                )
+                if last_ticket and last_ticket.get("created_at"):
+                    last_created_at = last_ticket["created_at"]
+                    if isinstance(last_created_at, str):
+                        try:
+                            last_created_at = datetime.fromisoformat(last_created_at.replace("Z", "+00:00"))
+                        except Exception:
+                            last_created_at = None
+                    if isinstance(last_created_at, datetime):
+                        if last_created_at.tzinfo is None:
+                            last_created_at = last_created_at.replace(tzinfo=timezone.utc)
+                        now_utc = datetime.now(timezone.utc)
+                        elapsed = (now_utc - last_created_at).total_seconds()
+                        if elapsed < cooldown_seconds:
+                            retry_ts = int(last_created_at.timestamp() + cooldown_seconds)
+                            await interaction.followup.send(
+                                f"⏳ You are opening tickets too fast! You can open another ticket <t:{retry_ts}:R>.",
+                                ephemeral=True,
+                            )
+                            return
 
             ticket_number = await self.get_next_ticket_number(guild.id, category_id)
 
@@ -505,6 +664,14 @@ class TicketsEngineCog(commands.Cog):
                     )
             except Exception as e:
                 logger.warning("Error posting initial ticket message in %s: %s", ticket_channel.id, e)
+
+            await self._send_ticket_log(
+                guild=guild,
+                action="created",
+                ticket_doc=ticket_doc,
+                actor=user,
+                extra_fields=[("Channel", ticket_channel.mention)],
+            )
 
             await interaction.followup.send(
                 f"✅ Your ticket has been created: {ticket_channel.mention}", ephemeral=True
@@ -674,6 +841,7 @@ class TicketsEngineCog(commands.Cog):
                 doc["claimed_by"] = None
                 await self._update_ticket_control_message(channel, doc, category, status="open", claimed_by=None)
                 await channel.send(f"Ticket unclaimed by {member.mention}.")
+                await self._send_ticket_log(guild=guild, action="unclaimed", ticket_doc=doc, actor=member)
                 await interaction.response.send_message("You have unclaimed this ticket.", ephemeral=True)
             else:
                 # Claim
@@ -685,6 +853,7 @@ class TicketsEngineCog(commands.Cog):
                 doc["claimed_by"] = member.id
                 await self._update_ticket_control_message(channel, doc, category, status="claimed", claimed_by=member.id)
                 await channel.send(f"👑 Ticket claimed by {member.mention}.")
+                await self._send_ticket_log(guild=guild, action="claimed", ticket_doc=doc, actor=member)
                 await interaction.response.send_message("You have claimed this ticket.", ephemeral=True)
 
         # ---------------------------------------------------------------------
@@ -735,6 +904,15 @@ class TicketsEngineCog(commands.Cog):
                 f"🔒 Ticket closed by {member.mention}. Creator permissions revoked.",
                 view=build_ticket_control_view(channel.id, status="closed"),
             )
+            msg_count, transcript_bytes = await generate_ticket_transcript(channel)
+            await self._send_ticket_log(
+                guild=guild,
+                action="closed",
+                ticket_doc=doc,
+                actor=member,
+                extra_fields=[("Messages", str(msg_count))],
+                transcript_bytes=transcript_bytes,
+            )
             await interaction.response.send_message("Ticket closed successfully.", ephemeral=True)
 
         # ---------------------------------------------------------------------
@@ -778,6 +956,7 @@ class TicketsEngineCog(commands.Cog):
                 f"🔓 Ticket reopened by {member.mention}.",
                 view=build_ticket_control_view(channel.id, status="open", is_claimed=False),
             )
+            await self._send_ticket_log(guild=guild, action="reopened", ticket_doc=doc, actor=member)
             await interaction.response.send_message("Ticket reopened.", ephemeral=True)
 
         # ---------------------------------------------------------------------
@@ -979,6 +1158,16 @@ class TicketsEngineCog(commands.Cog):
                 return
 
             await interaction.response.send_message("🗑️ Deleting ticket channel...", ephemeral=True)
+            msg_count, transcript_bytes = await generate_ticket_transcript(channel)
+            await self._send_ticket_log(
+                guild=guild,
+                action="deleted",
+                ticket_doc=doc,
+                actor=member,
+                extra_fields=[("Messages", str(msg_count))],
+                transcript_bytes=transcript_bytes,
+            )
+
             # Mark closed in DB if not already closed
             if doc.get("status") != "closed":
                 await database.db.tickets.update_one(

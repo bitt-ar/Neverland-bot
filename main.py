@@ -78,20 +78,6 @@ async def on_ready():
         logging.error("Error syncing slash commands on startup: %s", e)
 
 
-@bot.command(name="sync")
-@commands.has_permissions(administrator=True)
-async def prefix_sync(ctx: commands.Context):
-    """Fallback prefix command (!sync) to purge duplicate commands and sync globally."""
-    try:
-        msg = await ctx.send("⏳ Purging duplicate commands and syncing globally...")
-        bot.tree.clear_commands(guild=ctx.guild)
-        await bot.tree.sync(guild=ctx.guild)
-        global_cmds = await bot.tree.sync()
-        await msg.edit(content=f"✅ Removed duplicate commands! Successfully synced {len(global_cmds)} global commands cleanly.")
-    except Exception as e:
-        await ctx.send(f"❌ Error syncing commands: {e}")
-
-
 @bot.event
 async def on_member_remove(member):
     settings = await database.get_settings(member.guild.id)
@@ -108,45 +94,6 @@ async def on_command_error(ctx, error):
     logging.error("Command error in %s: %s", ctx.command, error)
 
 
-@bot.tree.command(name="sync", description="Purge duplicate commands and sync globally (admin)")
-@app_commands.default_permissions(administrator=True)
-async def sync(interaction: discord.Interaction):
-    try:
-        if interaction.guild:
-            bot.tree.clear_commands(guild=interaction.guild)
-            await bot.tree.sync(guild=interaction.guild)
-        fmt = await bot.tree.sync()
-        await interaction.response.send_message(
-            f"Purged duplicate commands and synced {len(fmt)} command(s) globally.",
-            ephemeral=True
-        )
-    except Exception as e:
-        await interaction.response.send_message(f"Error while syncing commands: {e}", ephemeral=True)
-
-
-@bot.tree.command(name="setavatar", description="Change the bot's avatar (admin)")
-@app_commands.default_permissions(administrator=True)
-async def setavatar(interaction: discord.Interaction, image: discord.Attachment):
-    if not image.content_type.startswith("image"):
-        await interaction.response.send_message("Please provide an image attachment.", ephemeral=True)
-        return
-    await interaction.response.defer(ephemeral=True)
-    data = await image.read()
-    try:
-        await bot.user.edit(avatar=data)
-        await interaction.followup.send("Avatar updated successfully.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
-
-
-@bot.tree.command(name="clear", description="Clean up conversations (admin)")
-@app_commands.default_permissions(administrator=True)
-async def clear(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]):
-    await interaction.response.defer(ephemeral=True)
-    deleted = await interaction.channel.purge(limit=amount)
-    await interaction.followup.send(f"Deleted {len(deleted)} messages", ephemeral=True)
-
-
 @bot.tree.command(name="avatar", description="Fetch avatar of a user")
 async def avatar(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
@@ -155,31 +102,34 @@ async def avatar(interaction: discord.Interaction, member: discord.Member = None
 
 @bot.tree.command(name="help")
 async def help_command(interaction: discord.Interaction):
-    embed = ("# **Chatbot Commands** \n"
-             " * **/avatar   fetch avatar of a user** \n"
-             " * **/clear    Clean up conversations (admin)** \n"
-             "# **Leveling Commands**\n"
-             " * **/rank               Rank card + your position in this server**\n"
-             " * **/leaderboard        Top 10 members in this server**\n"
-             " * **/theme              Change your rank card theme (Dark, Orange, Purple)**\n"
-             " * **/add_background     Add a background by link**\n"
-             " * **/delete_background   Recovery of the default background**\n"
-             "# **Giveaway Commands**\n"
-             " * **/giveaway       creat a give away**\n"
-             " * **/reroll         reroll a giveaway**\n"
-             "# **Tickets & Voice**\n"
-             " * **/tickets status         View tickets configuration & open tickets**\n"
-             " * **/tickets publish-panel  Publish or replace ticket panel**\n"
-             " * **/tempvoice              View active voice lounges & dashboard**\n"
-             "# **Activity**\n"
-             " * **/activity       Weekly voice & message stats**\n"
-             "# **Admin**\n"
-             " * **/sync            Sync slash commands and purge duplicates**\n"
-             " * **/setavatar       Change the bot avatar**\n"
-             " * **/setup           Server settings (welcome, leave)**\n"
-             " * **/levelroles      Level role rewards**\n"
-             " * **/reactionrole    Reaction roles wizard**\n"
-             " * **/xp              Give XP to a member**\n"
+    embed = ("# **Chat & Utilities** \n"
+             " * **/avatar              Fetch avatar of a user** \n"
+             " * **/clear               Clean up messages (admin/moderator)** \n"
+             "# **Leveling & Rank**\n"
+             " * **/rank                Display your rank card & server position**\n"
+             " * **/leaderboard         Top 10 members in this server**\n"
+             " * **/theme               Change your rank card theme (Dark, Orange, Purple)**\n"
+             " * **/add_background      Upload a custom rank card background image**\n"
+             "# **Giveaways**\n"
+             " * **/giveaway            Create an interactive giveaway**\n"
+             " * **/giveaway_logs       Configure the giveaway logs channel**\n"
+             " * **/reroll              Reroll a completed giveaway**\n"
+             "# **Support Tickets & Voice**\n"
+             " * **/tickets status      View ticket system configuration & stats**\n"
+             " * **/tickets publish-panel Publish or refresh the ticket panel**\n"
+             " * **/tickets logs        Set the ticket audit & transcript logs channel**\n"
+             " * **/tempvoice           View active temporary voice lounges**\n"
+             "# **Moderation & Security**\n"
+             " * **/warn, /warnings     Issue and review member warnings**\n"
+             " * **/timeout, /untimeout Mute/unmute members dynamically**\n"
+             " * **/kick, /ban, /unban  Enforce server moderation actions**\n"
+             " * **/modlogs             View moderation action history**\n"
+             "# **Activity & Admin**\n"
+             " * **/activity            Weekly voice & message statistics**\n"
+             " * **/setup               Server settings (welcome, leave)**\n"
+             " * **/levelroles          Configure level role rewards**\n"
+             " * **/reactionrole        Reaction roles wizard**\n"
+             " * **/xp                  Grant XP to a member (admin)**\n"
              )
 
     await interaction.response.send_message(embed)

@@ -64,8 +64,14 @@ interface ReactionRolesClientProps {
 interface PairFormItem {
   id: string;
   emoji: string;
+  label?: string;
   role_id: string | "";
 }
+
+const DEFAULT_EMOJIS = [
+  "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
+  "⭐", "🎮", "🔔", "📢", "💬", "🛡️", "👑", "🔥", "🚀", "💡",
+];
 
 const STYLE_OPTIONS = [
   { value: "reactions", label: "Reactions (Emoji reactions under message)" },
@@ -96,7 +102,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
   const [embedColor, setEmbedColor] = useState("#5865F2");
   const [enabled, setEnabled] = useState(true);
   const [pairs, setPairs] = useState<PairFormItem[]>([
-    { id: "1", emoji: "1", role_id: "" },
+    { id: "1", emoji: "1️⃣", label: "", role_id: "" },
   ]);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -203,7 +209,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
     setEmbedColor("#5865F2");
     setEnabled(true);
     setPairs([
-      { id: Math.random().toString(), emoji: "", role_id: "" },
+      { id: Math.random().toString(), emoji: "1️⃣", label: "", role_id: "" },
     ]);
     setFieldErrors({});
     setIsDirty(false);
@@ -226,10 +232,11 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
       msg.pairs.length > 0
         ? msg.pairs.map((p) => ({
             id: Math.random().toString(),
-            emoji: stripEmojis(p.emoji),
+            emoji: p.emoji || "",
+            label: p.label || "",
             role_id: p.role_id,
           }))
-        : [{ id: Math.random().toString(), emoji: "", role_id: "" }]
+        : [{ id: Math.random().toString(), emoji: "1️⃣", label: "", role_id: "" }]
     );
     setFieldErrors({});
     setIsDirty(false);
@@ -255,9 +262,10 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
       return;
     }
     setIsDirty(true);
+    const defaultEmoji = DEFAULT_EMOJIS[pairs.length % DEFAULT_EMOJIS.length] || "⭐";
     setPairs((prev) => [
       ...prev,
-      { id: Math.random().toString(), emoji: String(prev.length + 1), role_id: "" },
+      { id: Math.random().toString(), emoji: defaultEmoji, label: "", role_id: "" },
     ]);
   };
 
@@ -298,15 +306,11 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
   };
 
   // Update pair field
-  const handlePairChange = (index: number, field: "emoji" | "role_id", val: string) => {
+  const handlePairChange = (index: number, field: "emoji" | "role_id" | "label", val: string) => {
     setIsDirty(true);
     setPairs((prev) => {
       const next = [...prev];
-      if (field === "emoji") {
-        next[index] = { ...next[index], emoji: val };
-      } else {
-        next[index] = { ...next[index], role_id: val };
-      }
+      next[index] = { ...next[index], [field]: val };
       return next;
     });
   };
@@ -316,7 +320,8 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
     setFieldErrors({});
 
     const pairsData = pairs.map((p, i) => ({
-      emoji: p.emoji.trim(),
+      emoji: style === "select" ? (p.emoji?.trim() || "") : p.emoji.trim(),
+      label: p.label?.trim() || "",
       role_id: p.role_id || "",
       order: i,
     }));
@@ -450,6 +455,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
       const r = roles.find((role) => String(role.id) === String(p.role_id));
       return {
         emoji: p.emoji.trim() || String(idx + 1),
+        label: p.label?.trim() || "",
         roleName: r ? r.name : "Select a role",
         roleColor: r?.color || null,
       };
@@ -927,7 +933,9 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Label className="text-xs font-semibold">Emoji & Role Pairs</Label>
+                    <Label className="text-xs font-semibold">
+                      {style === "select" ? "Dropdown Options (Text & Roles)" : "Emoji & Role Pairs"}
+                    </Label>
                     <Badge variant="outline" className="text-[11px] font-mono">
                       {pairs.length}/{maxPairsAllowed}
                     </Badge>
@@ -941,7 +949,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
                     className="h-7 text-xs gap-1"
                   >
                     <Plus className="size-3.5" />
-                    <span>Add Pair</span>
+                    <span>{style === "select" ? "Add Option" : "Add Pair"}</span>
                   </Button>
                 </div>
 
@@ -959,7 +967,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
                       <div key={pair.id} className="space-y-1">
                         <div
                           className={`flex items-center gap-2 rounded-md border bg-muted/10 p-2 ${
-                            fieldErrors[roleKey] || fieldErrors[emojiKey]
+                            fieldErrors[roleKey] || (style !== "select" && fieldErrors[emojiKey])
                               ? "border-destructive/60 bg-destructive/5"
                               : "border-border/60"
                           }`}
@@ -984,17 +992,28 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
                             </button>
                           </div>
 
-                          {/* Emoji Input */}
-                          <div className="w-24 shrink-0">
-                            <Input
-                              placeholder="Emoji"
-                              value={pair.emoji}
-                              onChange={(e) => handlePairChange(index, "emoji", e.target.value)}
-                              className={`h-8 text-center text-sm font-emoji ${
-                                fieldErrors[emojiKey] ? "border-destructive focus-visible:ring-destructive" : ""
-                              }`}
-                            />
-                          </div>
+                          {/* Option Input: Text Label if Select Menu, Emoji if Reactions/Buttons */}
+                          {style === "select" ? (
+                            <div className="w-44 sm:w-52 shrink-0">
+                              <Input
+                                placeholder="Option Text (Defaults to Role)"
+                                value={pair.label || ""}
+                                onChange={(e) => handlePairChange(index, "label", e.target.value)}
+                                className="h-8 text-xs font-sans"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-24 shrink-0">
+                              <Input
+                                placeholder="Emoji"
+                                value={pair.emoji}
+                                onChange={(e) => handlePairChange(index, "emoji", e.target.value)}
+                                className={`h-8 text-center text-sm font-emoji ${
+                                  fieldErrors[emojiKey] ? "border-destructive focus-visible:ring-destructive" : ""
+                                }`}
+                              />
+                            </div>
+                          )}
 
                           {/* Role Select */}
                           <div className="flex-1 min-w-0">
@@ -1140,9 +1159,26 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
 
                       {/* Style 3: Select Menu */}
                       {livePreview.style === "select" && (
-                        <div className="rounded-md bg-[#1e1f22] border border-[#3f4147] p-2.5 text-xs text-[#949ba4] flex items-center justify-between">
-                          <span className="text-xs">Select a role...</span>
-                          <ChevronDown className="size-3.5 text-[#949ba4]" />
+                        <div className="space-y-1.5">
+                          <div className="rounded-md bg-[#1e1f22] border border-[#3f4147] p-2.5 text-xs text-[#949ba4] flex items-center justify-between">
+                            <span className="text-xs font-medium">Select a role...</span>
+                            <ChevronDown className="size-3.5 text-[#949ba4]" />
+                          </div>
+                          {livePreview.pairs.length > 0 && (
+                            <div className="rounded-md bg-[#2b2d31] border border-[#3f4147] p-1 space-y-0.5">
+                              {livePreview.pairs.map((p, idx) => (
+                                <div
+                                  key={idx}
+                                  className="px-2 py-1.5 rounded hover:bg-[#35373c] text-white flex items-center justify-between text-xs"
+                                >
+                                  <span className="font-medium text-[#dbdee1]">{p.label || p.roleName}</span>
+                                  {p.label && (
+                                    <span className="text-[10px] text-[#949ba4]">@{p.roleName}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

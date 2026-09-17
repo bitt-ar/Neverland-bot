@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-sans: var(--font-sans), "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", Consolas, Menlo, Monaco, monospace;
+  --font-heading: var(--font-sans), "Plus Jakarta Sans", "Inter", sans-serif;
   --ease-out-soft: var(--ease-out-soft);
   --duration-fast: var(--duration-fast);
   --duration-normal: var(--duration-normal);
