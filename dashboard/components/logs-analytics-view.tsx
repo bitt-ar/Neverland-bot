@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Search,
   RotateCcw,
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { GuildOverview, ModuleOverviewItem, HealthResponse } from "@/lib/control-plane";
 import { TicketItem } from "@/lib/modules/tickets";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export interface LogEvent {
   id: string;
@@ -45,12 +46,17 @@ export function LogsAnalyticsView({
   tickets,
   health,
 }: LogsAnalyticsViewProps) {
+  const [isMounted, setIsMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "api" | "tickets">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [inspectorTab, setInspectorTab] = useState<"details" | "raw">("details");
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Generate real initial logs from server state & actual tickets
   const initialEvents = useMemo<LogEvent[]>(() => {
@@ -381,6 +387,68 @@ export function LogsAnalyticsView({
     setTimeout(() => setCopied(false), 2000);
   }, [selectedEvent]);
 
+  if (!isMounted) {
+    return (
+      <div className="space-y-5 min-w-0 font-sans">
+        {/* Top Banner / Heading Skeleton */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+          <div className="space-y-1.5">
+            <Skeleton className="h-6 w-44" />
+            <Skeleton className="h-3.5 w-64" />
+          </div>
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+
+        {/* Dynamic Histogram Skeleton */}
+        <div className="p-3.5 rounded-[4px] border border-border/70 bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+          <div className="h-16 flex items-end gap-1 px-1">
+            {Array.from({ length: 36 }).map((_, i) => (
+              <Skeleton key={i} className="flex-1 h-8 rounded-[1px]" />
+            ))}
+          </div>
+        </div>
+
+        {/* Supabase-style Filter Toolbar Skeleton */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 p-2 rounded-[4px] border border-border/70 bg-muted/20">
+          <div className="flex items-center gap-1.5">
+            <Skeleton className="h-7 w-16" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-7 w-20" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-7 w-20" />
+          </div>
+        </div>
+
+        {/* Two-Column Split Layout Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <div className="lg:col-span-7 rounded-[4px] border border-border/70 bg-card p-3 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border/50">
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full rounded-[2px]" />
+              ))}
+            </div>
+          </div>
+          <div className="lg:col-span-5 rounded-[4px] border border-border/70 bg-card p-4 space-y-3">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-20 w-full rounded-[2px]" />
+            <Skeleton className="h-32 w-full rounded-[2px]" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 min-w-0 font-sans">
       {/* Top Banner / Heading */}
@@ -567,7 +635,7 @@ export function LogsAnalyticsView({
                         : "hover:bg-muted/30"
                     }`}
                   >
-                    <span className="text-muted-foreground/80 text-[11px] shrink-0 font-mono">
+                    <span suppressHydrationWarning className="text-muted-foreground/80 text-[11px] shrink-0 font-mono">
                       {evt.time}
                     </span>
                     <span
@@ -665,7 +733,7 @@ export function LogsAnalyticsView({
                 </div>
                 <div className="flex items-center justify-between font-mono">
                   <span className="text-muted-foreground">Timestamp</span>
-                  <span className="text-foreground/90 text-[11px] truncate max-w-[200px]">
+                  <span suppressHydrationWarning className="text-foreground/90 text-[11px] truncate max-w-[200px]">
                     {selectedEvent.isoTime}
                   </span>
                 </div>
