@@ -19,12 +19,14 @@ class MemoryLogHandler(logging.Handler):
     def __init__(self, maxlen: int = 300):
         super().__init__()
         self.buffer = deque(maxlen=maxlen)
+        self._seq = 0
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            self._seq += 1
             formatted_msg = record.getMessage()
             entry = {
-                "id": f"{int(record.created * 1000)}-{record.msecs}",
+                "id": f"{int(record.created * 1000)}-{self._seq}",
                 "timestamp": record.created,
                 "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
                 "iso": datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).isoformat(),

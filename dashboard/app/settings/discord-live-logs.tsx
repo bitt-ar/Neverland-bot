@@ -3,21 +3,16 @@
 import * as React from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   Clock,
   Copy,
   Download,
-  Flame,
   Pause,
-  Play,
-  Radio,
   RefreshCw,
   Search,
   Sliders,
   Terminal,
   Trash2,
   Wifi,
-  WifiOff,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -90,8 +85,14 @@ export function DiscordLiveLogs() {
 
         if (Array.isArray(data.logs) && data.logs.length > 0) {
           setLogs((prev) => {
-            const existingIds = new Set(prev.map((e) => e.id));
-            const newEntries = data.logs.filter((e: BotLogEntry) => !existingIds.has(e.id));
+            const seenIds = new Set(prev.map((e) => e.id));
+            const newEntries: BotLogEntry[] = [];
+            for (const item of data.logs) {
+              if (item && item.id && !seenIds.has(item.id)) {
+                seenIds.add(item.id);
+                newEntries.push(item);
+              }
+            }
             if (newEntries.length === 0) return prev;
             return [...prev, ...newEntries].slice(-300);
           });
@@ -421,7 +422,7 @@ export function DiscordLiveLogs() {
               </p>
             </div>
           ) : (
-            filteredLogs.map((log) => {
+            filteredLogs.map((log, idx) => {
               const lvl = log.level.toUpperCase();
               const isError = lvl === "ERROR" || lvl === "CRITICAL";
               const isWarn = lvl === "WARNING" || lvl === "WARN";
@@ -429,7 +430,7 @@ export function DiscordLiveLogs() {
 
               return (
                 <div
-                  key={log.id}
+                  key={`${log.id}-${idx}`}
                   className={`flex items-start gap-2 py-0.5 leading-relaxed rounded px-1 -mx-1 transition-colors ${
                     isError
                       ? "bg-red-950/30 text-red-300 font-semibold"
