@@ -16,6 +16,8 @@ export interface GuildOverview {
   icon_url: string | null;
   member_count: number | null;
   online_count: number | null;
+  owner_id?: string;
+  is_admin?: boolean | null;
   channels: {
     text: number;
     voice: number;
@@ -192,8 +194,12 @@ export async function deleteControlPlane<T>(
   });
 }
 
-export async function getGuildOverview(guildId: string): Promise<GuildOverview> {
-  return fetchControlPlane<GuildOverview>(`/guilds/${guildId}/overview`);
+export async function getGuildOverview(
+  guildId: string,
+  userId?: string
+): Promise<GuildOverview> {
+  const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+  return fetchControlPlane<GuildOverview>(`/guilds/${guildId}/overview${query}`);
 }
 
 export interface ModuleOverviewItem {
@@ -223,10 +229,13 @@ export interface GuildSummary {
   icon_url: string | null;
   member_count: number | null;
   owner_id: string;
+  is_owner?: boolean;
+  is_admin?: boolean;
 }
 
-export async function getGuilds(): Promise<GuildSummary[]> {
-  return fetchControlPlane<GuildSummary[]>("/guilds");
+export async function getGuilds(userId?: string): Promise<GuildSummary[]> {
+  const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+  return fetchControlPlane<GuildSummary[]>(`/guilds${query}`);
 }
 
 export interface BotInfo {

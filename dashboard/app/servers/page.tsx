@@ -28,15 +28,16 @@ export default async function ServersPage() {
   let error: string | null = null;
 
   try {
-    allGuilds = await getGuilds();
+    allGuilds = await getGuilds(user?.id);
   } catch (err: unknown) {
     error = err instanceof Error ? err.message : "Failed to connect to control plane";
   }
 
-  // Filter guilds based on user ownership or manage permissions:
-  // Both Bot Owner and Regular User only see their OWN managed servers!
+  // Filter guilds based on user ownership or live bot admin permissions:
+  // Both Bot Owner and Regular User only see servers where they hold Administrator or Ownership!
   const isOwner = Boolean(user?.isOwner);
   const visibleGuilds = allGuilds.filter((g) => {
+    if (g.is_admin === true) return true;
     if (user?.id && g.owner_id === user.id) return true;
     if (user?.managedGuildIds && user.managedGuildIds.includes(g.id)) return true;
     return false;

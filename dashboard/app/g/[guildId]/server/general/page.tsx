@@ -14,6 +14,7 @@ import {
   Volume2,
 } from "lucide-react";
 
+import { checkGuildAccess } from "../../guild-access";
 import {
   getGuildOverview,
   getGuildModulesOverview,
@@ -115,6 +116,8 @@ export default async function ServerGeneralPage({
   params: Promise<{ guildId: string }>;
 }) {
   const { guildId } = await params;
+  const accessGate = await checkGuildAccess(guildId);
+  if (accessGate) return accessGate;
 
   let overview: GuildOverview | null = null;
   let modulesList: ModuleOverviewItem[] = [];

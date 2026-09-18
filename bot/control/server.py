@@ -78,21 +78,49 @@ async def health_handler(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "db": db_ok, "version": "0.1.0"})
 
 
+async def _check_guild_admin(guild, user_id: int) -> bool:
+    """Returns True if the user is the server owner or has an Administrator role in the guild."""
+    if not guild or not user_id:
+        return False
+    if str(getattr(guild, "owner_id", "")) == str(user_id):
+        return True
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            member = None
+    if member is not None:
+        return bool(member.guild_permissions.administrator)
+    return False
+
+
 async def guilds_list_handler(request: web.Request) -> web.Response:
-    """Lists every guild the bot is currently in (dashboard server picker)."""
+    """Lists every guild the bot is currently in, with user admin permission flags."""
     bot = request.app.get("bot")
     if bot is None:
         return web.json_response({"error": "bot_unavailable"}, status=503)
     try:
+        user_id_raw = request.query.get("user_id")
+        user_id = int(user_id_raw) if (user_id_raw and user_id_raw.isdigit()) else None
+
         guilds = []
         for guild in getattr(bot, "guilds", []) or []:
             icon = getattr(guild, "icon", None)
+            is_guild_owner = bool(user_id and str(guild.owner_id) == str(user_id))
+            is_admin = is_guild_owner
+
+            if user_id and not is_admin:
+                is_admin = await _check_guild_admin(guild, user_id)
+
             guilds.append({
                 "id": str(guild.id),
                 "name": getattr(guild, "name", ""),
                 "icon_url": str(icon.url) if icon else None,
                 "member_count": getattr(guild, "member_count", None),
                 "owner_id": str(getattr(guild, "owner_id", "") or ""),
+                "is_owner": is_guild_owner,
+                "is_admin": is_admin,
             })
         guilds.sort(key=lambda g: (g.get("name") or "").lower())
         return web.json_response(guilds)
@@ -240,6 +268,12 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
         member_count = getattr(guild, "member_count", None)
 
         bot = request.app.get("bot")
+        user_id_raw = request.query.get("user_id")
+        user_id = int(user_id_raw) if (user_id_raw and user_id_raw.isdigit()) else None
+        is_admin = None
+        if user_id:
+            is_admin = await _check_guild_admin(guild, user_id)
+
         online_count = None
         try:
             intents = getattr(bot, "intents", None)
@@ -320,6 +354,8 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
                     "total": total_channels,
                 },
                 "roles": roles_count,
+                "owner_id": str(getattr(guild, "owner_id", "") or ""),
+                "is_admin": is_admin,
                 "bot_status": "connected",
                 "stats": {
                     "reaction_role_pairs": rr_pairs,

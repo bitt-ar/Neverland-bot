@@ -48,13 +48,14 @@ export async function checkGuildAccess(guildId: string) {
   }
 
   try {
-    const overview = await getGuildOverview(guildId);
+    const overview = await getGuildOverview(guildId, user?.id);
 
-    // Permission check: users (including bot owner) can only manage servers they own or have Manage Server/Admin in
+    // Permission check: users (including bot owner) can only manage servers they own or have Administrator in
     if (user) {
       const isAllowed =
-        (user.managedGuildIds && user.managedGuildIds.includes(guildId)) ||
-        (overview as unknown as { owner_id?: string })?.owner_id === user.id;
+        overview.is_admin === true ||
+        (overview.owner_id && overview.owner_id === user.id) ||
+        (user.managedGuildIds && user.managedGuildIds.includes(guildId));
 
       if (!isAllowed) {
         return (
@@ -66,12 +67,12 @@ export async function checkGuildAccess(guildId: string) {
                   <CardTitle className="text-destructive">Access Denied</CardTitle>
                 </div>
                 <CardDescription className="text-destructive/80">
-                  You do not have Administrator or Manage Server permissions in this server.
+                  You do not have Administrator permissions in this server.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  You can only view and manage servers that belong to you or where you are granted management roles.
+                  You can only view and manage servers that belong to you or where you have an active Administrator role.
                 </p>
               </CardContent>
               <CardFooter>

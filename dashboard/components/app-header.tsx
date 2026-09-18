@@ -36,6 +36,9 @@ interface GuildInfo {
   name: string;
   icon_url: string | null;
   member_count?: number | null;
+  owner_id?: string;
+  is_admin?: boolean;
+  is_owner?: boolean;
 }
 
 interface AppHeaderProps {
@@ -83,7 +86,10 @@ export function AppHeader({ authEnabled = false }: AppHeaderProps) {
 
   const fetchGuilds = React.useCallback(async () => {
     try {
-      const res = await fetch("/api/internal/guilds");
+      const url = currentUser?.id
+        ? `/api/internal/guilds?user_id=${encodeURIComponent(currentUser.id)}`
+        : "/api/internal/guilds";
+      const res = await fetch(url);
       if (res.ok) {
         const data: GuildInfo[] = await res.json();
         setGuilds(data);
@@ -91,15 +97,17 @@ export function AppHeader({ authEnabled = false }: AppHeaderProps) {
     } catch {
       setGuilds([]);
     }
-  }, []);
+  }, [currentUser?.id]);
 
   // Filter guilds visible to the current user (only their own managed servers)
   const visibleGuilds = React.useMemo(() => {
     if (!currentUser) return guilds;
-    if (currentUser.managedGuildIds) {
-      return guilds.filter((g) => currentUser.managedGuildIds!.includes(g.id));
-    }
-    return guilds;
+    return guilds.filter((g) => {
+      if (g.is_admin === true) return true;
+      if (g.owner_id === currentUser.id) return true;
+      if (currentUser.managedGuildIds && currentUser.managedGuildIds.includes(g.id)) return true;
+      return false;
+    });
   }, [guilds, currentUser]);
 
 

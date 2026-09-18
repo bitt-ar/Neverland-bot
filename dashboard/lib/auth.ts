@@ -329,16 +329,17 @@ export async function fetchDiscordGuilds(accessToken: string): Promise<DiscordGu
 }
 
 /**
- * Checks if a user has Admin or Manage Guild permissions.
- * Permissions bit 0x8 = ADMINISTRATOR, 0x20 = MANAGE_GUILD.
+ * Checks if a user has Admin permissions.
+ * Permissions bit 0x8 = ADMINISTRATOR.
+ * MANAGE_GUILD (0x20) is intentionally excluded per security requirements:
+ * a user MUST have the Administrator permission/role or be the server owner.
  */
 export function canManageGuild(guild: DiscordGuildResponse): boolean {
   if (guild.owner) return true;
   try {
     const perms = BigInt(guild.permissions);
     const ADMINISTRATOR = BigInt(0x8);
-    const MANAGE_GUILD = BigInt(0x20);
-    return (perms & ADMINISTRATOR) === ADMINISTRATOR || (perms & MANAGE_GUILD) === MANAGE_GUILD;
+    return (perms & ADMINISTRATOR) === ADMINISTRATOR;
   } catch {
     return false;
   }
