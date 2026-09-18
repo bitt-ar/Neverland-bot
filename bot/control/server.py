@@ -131,6 +131,10 @@ async def guilds_list_handler(request: web.Request) -> web.Response:
                         is_admin = True
                         break
 
+            # Privacy boundary: only include guilds where user is confirmed admin or owner
+            if not is_admin:
+                continue
+
             guilds.append({
                 "id": str(guild.id),
                 "name": getattr(guild, "name", ""),
@@ -144,7 +148,7 @@ async def guilds_list_handler(request: web.Request) -> web.Response:
         return web.json_response(guilds)
     except Exception as e:
         logger.exception("Error in guilds_list_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to retrieve guilds list"}, status=500)
 
 
 async def bot_info_handler(request: web.Request) -> web.Response:
@@ -390,9 +394,9 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
         logger.exception("Unexpected error in guild_overview_handler: %s", e)
         fallback_is_admin = False
         try:
-            if user_ids:
+            if user_ids and guild:
                 for uid in user_ids:
-                    if str(getattr(guild, "owner_id", "")) == str(uid) or (uid in [264847568608034816, 1081712809370468482]):
+                    if str(getattr(guild, "owner_id", "")) == str(uid):
                         fallback_is_admin = True
                         break
         except Exception:
@@ -1583,11 +1587,14 @@ async def giveaways_create_handler(request: web.Request) -> web.Response:
         from cogs.giveaway_cog import launch_dashboard_giveaway
 
         bot = request.app.get("bot")
+        user_id_raw = request.headers.get("X-User-Id") or request.query.get("user_id")
+        creator_id = int(user_id_raw) if user_id_raw and str(user_id_raw).isdigit() else bot.user.id
+
         result = await launch_dashboard_giveaway(
             bot=bot,
             guild_id=guild.id,
             channel_id=channel_id,
-            creator_id=bot.user.id,
+            creator_id=creator_id,
             title=title,
             winners_count=winners_count,
             duration_seconds=duration_seconds,
@@ -1685,7 +1692,7 @@ async def giveaways_config_put_handler(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "config": update_doc})
     except Exception as e:
         logger.exception("Error in giveaways_config_put_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"error": "Failed to update giveaway configuration"}, status=400)
 
 
 async def moderation_cases_list_handler(request: web.Request) -> web.Response:
@@ -1708,7 +1715,7 @@ async def moderation_cases_list_handler(request: web.Request) -> web.Response:
         return web.json_response(cases)
     except Exception as e:
         logger.exception("Error in moderation_cases_list_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to retrieve moderation cases"}, status=500)
 
 
 async def moderation_case_delete_handler(request: web.Request) -> web.Response:
@@ -1731,7 +1738,7 @@ async def moderation_case_delete_handler(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
     except Exception as e:
         logger.exception("Error in moderation_case_delete_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to delete moderation case"}, status=500)
 
 
 def create_app(bot) -> web.Application:

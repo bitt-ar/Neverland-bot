@@ -28,6 +28,15 @@ class TicketsCommandsCog(commands.Cog):
             return False
         return True
 
+    async def _check_admin(self, interaction: discord.Interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return False
+        if interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id:
+            return True
+        await interaction.response.send_message("⛔ You need Administrator permissions to use this command.", ephemeral=True)
+        return False
+
     tickets = app_commands.Group(
         name="tickets",
         description="Ticket system status and management",
@@ -157,9 +166,9 @@ class TicketsCommandsCog(commands.Cog):
         name="publish-panel",
         description="Publish or replace the ticket panel in the configured channel (Admin)",
     )
-    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.default_permissions(administrator=True)
     async def tickets_publish_panel(self, interaction: discord.Interaction):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
 
         guild = interaction.guild
@@ -200,14 +209,14 @@ class TicketsCommandsCog(commands.Cog):
         name="logs",
         description="Set or view the ticket audit & transcript logs channel (Admin)",
     )
-    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.default_permissions(administrator=True)
     async def tickets_logs(
         self,
         interaction: discord.Interaction,
         channel: discord.TextChannel = None,
         off: bool = False,
     ):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
 
         cfg = await self.registry.get_config(interaction.guild_id, "tickets")

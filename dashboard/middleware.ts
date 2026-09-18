@@ -16,8 +16,8 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
-  // Gate is opt-in: set DASHBOARD_PASSWORD to lock the dashboard down.
-  // Without it (local dev) everything behaves as before.
+  // Authentication is active in production or when AUTH_ENABLED=true.
+  // In development without auth enabled, all routes are open for testing.
   if (!isAuthEnabled()) {
     return NextResponse.next();
   }

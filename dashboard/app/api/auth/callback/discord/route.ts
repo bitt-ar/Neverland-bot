@@ -6,6 +6,8 @@ import {
   fetchDiscordGuilds,
   fetchDiscordUser,
   getAcceptedAdminIds,
+  OAUTH_STATE_COOKIE,
+  sanitizeRedirectPath,
   SESSION_COOKIE,
   sessionCookieOptions,
   UserSession,
@@ -16,13 +18,39 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
-  const state = searchParams.get("state") || "/servers";
+  const rawState = searchParams.get("state") || "";
   const error = searchParams.get("error");
 
   if (error || !code) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("error", error || "authorization_denied");
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Verify OAuth CSRF state token
+  const stateCookie = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
+  let targetDestination = "/servers";
+
+  if (rawState.includes(":")) {
+    const [tokenPart, destPart] = rawState.split(":", 2);
+    if (!stateCookie || tokenPart !== stateCookie) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("error", "csrf_validation_failed");
+      return NextResponse.redirect(loginUrl);
+    }
+    try {
+      targetDestination = sanitizeRedirectPath(decodeURIComponent(destPart));
+    } catch {
+      targetDestination = "/servers";
+    }
+  } else if (rawState) {
+    // If state was sent without token separator, ensure it matches cookie if present
+    if (stateCookie && rawState !== stateCookie) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("error", "csrf_validation_failed");
+      return NextResponse.redirect(loginUrl);
+    }
+    targetDestination = sanitizeRedirectPath(rawState);
   }
 
   const redirectUri =
@@ -70,14 +98,16 @@ export async function GET(request: NextRequest) {
 
     // 6. Redirect to target or landing page
     const destination =
-      state.startsWith("/") && state !== "/login"
-        ? state
+      targetDestination && targetDestination !== "/servers"
+        ? targetDestination
         : isOwner
         ? "/overview"
         : "/servers";
 
     const response = NextResponse.redirect(new URL(destination, request.url));
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+    // Clear the one-time OAuth state cookie
+    response.cookies.delete(OAUTH_STATE_COOKIE);
 
     return response;
   } catch (err: unknown) {

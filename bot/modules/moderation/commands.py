@@ -503,8 +503,15 @@ class ModerationCommandsCog(commands.Cog):
         channel: Optional[discord.TextChannel] = None,
         off: bool = False,
     ):
-        if not interaction.guild:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("Can only be used in a server.", ephemeral=True)
+            return
+
+        is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id
+        if not is_admin:
+            await interaction.response.send_message(
+                "⛔ You need Administrator permissions to configure moderation logs.", ephemeral=True
+            )
             return
 
         cfg = await self.registry.get_config(interaction.guild_id, "moderation") if self.registry else {}

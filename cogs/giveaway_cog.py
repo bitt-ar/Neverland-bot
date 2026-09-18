@@ -582,12 +582,13 @@ class Input(discord.ui.Modal, title="Create a Giveaway"):
         if self.image is not None:
             image_url = self.image.url
         elif str(self.Link).strip():
-            if not str(self.Link).startswith("http"):
+            link_str = str(self.Link).strip()
+            if not link_str.lower().startswith(("http://", "https://")):
                 await interaction.response.send_message(
-                    "Image link must start with http/https.", ephemeral=True
+                    "Image link must start with http:// or https://.", ephemeral=True
                 )
                 return
-            image_url = str(self.Link).strip()
+            image_url = link_str
 
         if not str(self.Winner.value).isdigit() or int(self.Winner.value) <= 0:
             await interaction.response.send_message(
@@ -739,10 +740,16 @@ class Giveaway(commands.Cog):
 
         msg_id = str(interaction.message.id)
         if database.db is None:
+            await interaction.response.send_message(
+                "Database is currently unavailable. Please try again in a moment.", ephemeral=True
+            )
             return
 
         doc = await database.db.giveaways.find_one({"message_id": msg_id})
         if not doc:
+            await interaction.response.send_message(
+                "This giveaway could not be found or has expired.", ephemeral=True
+            )
             return
 
         # 1. Active check
@@ -851,8 +858,21 @@ class Giveaway(commands.Cog):
 
         user_id = interaction.user.id
         updated = await database.db.giveaways.find_one_and_update(
-            {"message_id": msg_id, "entrants": user_id},
-            {"$pull": {"entrants": user_id}},
+            {
+                "message_id": msg_id,
+                "$or": [
+                    {"entrants": user_id},
+                    {"entrants": str(user_id)},
+                    {"Entrants": user_id},
+                    {"Entrants": str(user_id)},
+                ],
+            },
+            {
+                "$pull": {
+                    "entrants": {"$in": [user_id, str(user_id)]},
+                    "Entrants": {"$in": [user_id, str(user_id)]},
+                }
+            },
             return_document=ReturnDocument.AFTER,
         )
         if not updated:
@@ -861,12 +881,28 @@ class Giveaway(commands.Cog):
             )
             return
 
-        count = len(updated.get("entrants") or [])
+        current_entrants = updated.get("entrants") or updated.get("Entrants") or []
+        count = len(current_entrants)
 
-        # Update message embed
+        # Update the main giveaway message embed in the channel so the count decreases visibly
         try:
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
+            ch_id = doc.get("channel_id") or interaction.channel_id
+            channel = interaction.guild.get_channel(int(ch_id)) if ch_id else None
+            giveaway_msg = None
+            if channel and hasattr(channel, "fetch_message"):
+                try:
+                    giveaway_msg = await channel.fetch_message(int(msg_id))
+                except Exception:
+                    giveaway_msg = None
+
+            target_msg = giveaway_msg or (
+                interaction.message
+                if (interaction.message and str(interaction.message.id) == str(msg_id))
+                else None
+            )
+
+            if target_msg and target_msg.embeds:
+                embed = target_msg.embeds[0]
                 new_fields = []
                 for f in embed.fields:
                     if f.name in ("Entries", "👥 Entries"):
@@ -880,9 +916,9 @@ class Giveaway(commands.Cog):
                 embed.clear_fields()
                 for f in new_fields:
                     embed.add_field(name=f["name"], value=f["value"], inline=f["inline"])
-                await interaction.message.edit(embed=embed)
-        except Exception:
-            pass
+                await target_msg.edit(embed=embed)
+        except Exception as e:
+            logger.warning("Error updating giveaway embed on leave: %s", e)
 
         await interaction.response.send_message(
             "👋 You have left the giveaway.", ephemeral=True

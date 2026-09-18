@@ -13,6 +13,15 @@ class SetupCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _check_admin(self, interaction: discord.Interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return False
+        if interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id:
+            return True
+        await interaction.response.send_message("⛔ You need Administrator permissions to use this command.", ephemeral=True)
+        return False
+
     setup = app_commands.Group(
         name="setup",
         description="Server settings (admin)",
@@ -27,6 +36,8 @@ class SetupCog(commands.Cog):
         channel: discord.TextChannel = None,
         off: bool = False,
     ):
+        if not await self._check_admin(interaction):
+            return
         registry = getattr(self.bot, "modules_registry", None)
 
         if off:
@@ -63,6 +74,8 @@ class SetupCog(commands.Cog):
         channel: discord.TextChannel = None,
         off: bool = False,
     ):
+        if not await self._check_admin(interaction):
+            return
         if off:
             await database.update_settings(interaction.guild_id, leave_channel_id=None)
             await interaction.response.send_message("🚪 Leave notifications disabled.", ephemeral=True)
@@ -78,6 +91,8 @@ class SetupCog(commands.Cog):
 
     @setup.command(name="view", description="Show the current server settings")
     async def setup_view(self, interaction: discord.Interaction):
+        if not await self._check_admin(interaction):
+            return
         settings = await database.get_settings(interaction.guild_id)
 
         welcome = "not set"

@@ -30,7 +30,7 @@ export default async function SettingsPage() {
   const isSecretConfigured = Boolean(process.env.CONTROL_PLANE_SECRET);
   const guildId = process.env.GUILD_ID;
   const authEnabled = isAuthEnabled();
-  const devUserId = process.env.DEV_USER_ID || process.env.OWNER_DISCORD_ID || "264847568608034816";
+  const devUserId = process.env.DEV_USER_ID || process.env.OWNER_DISCORD_ID || "Not configured";
   const discordClientId = process.env.DISCORD_CLIENT_ID;
   const adminIdsConfigured = getDevAdminIds().length > 0;
   const dashboardVersion = pkg.version || "0.1.0";

@@ -81,6 +81,9 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
+    registry = getattr(bot, "modules_registry", None)
+    if registry and not await registry.is_enabled(member.guild.id, "welcome"):
+        return
     settings = await database.get_settings(member.guild.id)
     channel_id = settings.get("leave_channel_id")
     if not channel_id:

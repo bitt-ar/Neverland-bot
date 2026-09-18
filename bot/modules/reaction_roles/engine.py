@@ -205,6 +205,10 @@ class ReactionRolesEngineCog(commands.Cog):
             all_pairs = doc.get("pairs", [])
             all_role_ids = {p.get("role_id") for p in all_pairs if isinstance(p, dict) and p.get("role_id")}
 
+            if selected_role_id not in all_role_ids:
+                await interaction.response.send_message("Invalid role selection for this panel.", ephemeral=True)
+                return
+
             member = interaction.user
             if not isinstance(member, discord.Member):
                 member = interaction.guild.get_member(interaction.user.id)

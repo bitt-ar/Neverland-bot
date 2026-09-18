@@ -158,6 +158,15 @@ class LevelingCommandsCog(commands.Cog):
             return False
         return True
 
+    async def _check_admin(self, interaction: discord.Interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return False
+        if interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id:
+            return True
+        await interaction.response.send_message("⛔ You need Administrator permissions to use this command.", ephemeral=True)
+        return False
+
     levelroles = app_commands.Group(
         name="levelroles",
         description="Level role rewards (admin)",
@@ -172,7 +181,7 @@ class LevelingCommandsCog(commands.Cog):
         level: app_commands.Range[int, 1, 999],
         role: discord.Role,
     ):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
         if role.is_default() or role.managed:
             await interaction.response.send_message(
@@ -203,7 +212,7 @@ class LevelingCommandsCog(commands.Cog):
     async def levelroles_remove(
         self, interaction: discord.Interaction, level: app_commands.Range[int, 1, 999]
     ):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
 
         config_data = await self.registry.get_config(interaction.guild_id, "leveling")
@@ -233,7 +242,7 @@ class LevelingCommandsCog(commands.Cog):
 
     @levelroles.command(name="list", description="List level rewards")
     async def levelroles_list(self, interaction: discord.Interaction):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
 
         config_data = await self.registry.get_config(interaction.guild_id, "leveling")
@@ -395,7 +404,7 @@ class LevelingCommandsCog(commands.Cog):
         amount: app_commands.Range[int, 1, 100000],
         member: discord.Member,
     ):
-        if not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
             return
         if member.bot:
             await interaction.response.send_message("You can't give XP to bots.", ephemeral=True)

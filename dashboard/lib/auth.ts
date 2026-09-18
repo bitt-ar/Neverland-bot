@@ -32,11 +32,18 @@ export interface UserSession {
 const encoder = new TextEncoder();
 
 function getSigningSecret(): string {
-  return (
+  const secret =
     process.env.DASHBOARD_SESSION_SECRET ||
-    process.env.CONTROL_PLANE_SECRET ||
-    "neverland_default_secret_key_change_in_production"
-  );
+    process.env.CONTROL_PLANE_SECRET;
+
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("FATAL: DASHBOARD_SESSION_SECRET or CONTROL_PLANE_SECRET must be configured in production.");
+    }
+    return "neverland_dev_secret_key_change_in_production";
+  }
+
+  return secret;
 }
 
 export function isAuthEnabled(): boolean {
@@ -184,14 +191,14 @@ export async function getCurrentUser(cookieGetter?: {
     const devUserId =
       process.env.DEV_USER_ID?.trim() ||
       process.env.OWNER_DISCORD_ID?.trim() ||
-      "264847568608034816";
+      "";
 
     const acceptedIds = await getAcceptedAdminIds();
-    const devIds = devUserId.split(",").map((s) => s.trim()).filter(Boolean);
+    const devIds = devUserId ? devUserId.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const isOwner = devIds.some((id) => acceptedIds.includes(id));
 
     return {
-      id: devUserId,
+      id: devUserId || "dev-user",
       username: isOwner ? "Bot Owner (Dev)" : "Server Admin (Dev)",
       avatar: null,
       globalName: isOwner ? "Bot Owner" : "Dev User",
@@ -230,6 +237,28 @@ export async function checkAdminAccess(options?: {
       : undefined
   );
   return Boolean(user?.isOwner);
+}
+
+export const OAUTH_STATE_COOKIE = "neverland_oauth_state";
+
+export function sanitizeRedirectPath(path: string | null | undefined): string {
+  if (!path) return "/servers";
+  // Must start with exactly one "/" and never with "//" or "/\"
+  if (!path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) {
+    return "/servers";
+  }
+  if (path === "/login") {
+    return "/servers";
+  }
+  try {
+    const parsed = new URL(path, "http://localhost");
+    if (parsed.origin !== "http://localhost") {
+      return "/servers";
+    }
+    return parsed.pathname + parsed.search;
+  } catch {
+    return "/servers";
+  }
 }
 
 export function getDiscordOAuthUrl(state?: string): string {

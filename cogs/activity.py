@@ -27,15 +27,20 @@ class Activity(commands.Cog):
 
     @tasks.loop(time=weekly.time(hour=0, minute=0))
     async def weekly_reset(self):
-        """Delete previous weeks' stats every Monday 00:00"""
-        today = datetime.now(timezone.utc)
-        if today.weekday() == 0:  # Monday
-            try:
+        """Delete previous weeks' stats"""
+        try:
+            if database.db is not None:
                 current_week = self._get_week_start()
-                result = await database.db.activity.delete_many({"week_start": {"$ne": current_week}})
-                print(f"Weekly reset completed. Deleted {result.deleted_count} old entries.")
-            except Exception as e:
-                print(f"Error during weekly reset: {e}")
+                result = await database.db.activity.delete_many({"week_start": {"$lt": current_week}})
+                if result.deleted_count > 0:
+                    print(f"Weekly reset completed. Deleted {result.deleted_count} old entries.")
+        except Exception as e:
+            print(f"Error during weekly reset: {e}")
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        """Clean up voice session if member leaves server"""
+        self.voice_start_times.pop(member.id, None)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):

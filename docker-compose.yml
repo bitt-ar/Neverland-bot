@@ -2,6 +2,9 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-neverland}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-neverland_secure_db_pass}
     volumes:
       - mongo_data:/data/db
 
@@ -30,11 +33,11 @@ services:
       - CONTROL_PLANE_URL=http://bot:8800
       - CONTROL_PLANE_SECRET=${CONTROL_PLANE_SECRET}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
+      - DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET:-}
       # Dev-mode default guild (production ignores it for navigation).
       - GUILD_ID=${GUILD_ID:-}
-      # Auth is enabled in production (NODE_ENV=production) when a password is set.
-      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
-      - DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET:-}
       # Extra bot-admin Discord IDs for the Overview gate (app owner is always accepted).
       - ADMIN_DISCORD_IDS=${ADMIN_DISCORD_IDS:-}
     depends_on:

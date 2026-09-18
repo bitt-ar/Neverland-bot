@@ -601,7 +601,7 @@ class TempVoiceEngineCog(commands.Cog):
                     naming_template, member.display_name, n, guild.name
                 )
 
-                # Category resolution (per-area destination)
+                # Category resolution (per-area destination or fallback to trigger channel category)
                 category = None
                 cat_id = matched_area.get("category_id")
                 if cat_id:
@@ -610,17 +610,43 @@ class TempVoiceEngineCog(commands.Cog):
                         category = candidate
                     else:
                         logger.info(
-                            "Configured category %s not found in guild %s; creating uncategorized",
+                            "Configured category %s not found in guild %s; falling back to trigger channel category",
                             cat_id,
                             guild.id,
                         )
+                if category is None and isinstance(after.channel.category, discord.CategoryChannel):
+                    category = after.channel.category
 
-                # Overwrites: Creator gets explicit Connect overwrite
+                # Overwrites: Preserve category locks and trigger channel's private/role permissions
+                overwrites = dict(category.overwrites) if category else {}
+                for target, ow in after.channel.overwrites.items():
+                    overwrites[target] = ow
+
+                # Explicitly ensure the creator (owner) can view, connect, speak, and manage their room
+                member_ow = overwrites.get(member, discord.PermissionOverwrite())
+                member_ow.view_channel = True
+                member_ow.connect = True
+                member_ow.speak = True
+                member_ow.manage_channels = True
+                member_ow.move_members = True
+                overwrites[member] = member_ow
+
+                # Ensure bot has necessary access to manage and move members
+                if me:
+                    me_ow = overwrites.get(me, discord.PermissionOverwrite())
+                    me_ow.view_channel = True
+                    me_ow.connect = True
+                    me_ow.manage_channels = True
+                    me_ow.move_members = True
+                    overwrites[me] = me_ow
+
+                # Check if channel is initially locked for @everyone (e.g. trigger channel or category was private)
+                everyone_ow = overwrites.get(guild.default_role)
+                is_initially_locked = bool(
+                    everyone_ow and (everyone_ow.connect is False or everyone_ow.view_channel is False)
+                )
+
                 user_limit = max(0, min(99, int(matched_area.get("user_limit", 0) or 0)))
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(connect=True),
-                    member: discord.PermissionOverwrite(connect=True),
-                }
 
                 new_ch = await guild.create_voice_channel(
                     name=ch_name,
@@ -644,7 +670,9 @@ class TempVoiceEngineCog(commands.Cog):
                         )
 
                 # Send control panel message into the channel
-                panel_embed = build_panel_embed(new_ch.name, member.id, locked=False, user_limit=user_limit)
+                panel_embed = build_panel_embed(
+                    new_ch.name, member.id, locked=is_initially_locked, user_limit=user_limit
+                )
                 panel_view = build_panel_view(new_ch.id)
                 panel_msg = None
                 try:
@@ -657,7 +685,7 @@ class TempVoiceEngineCog(commands.Cog):
                     "guild_id": guild.id,
                     "channel_id": new_ch.id,
                     "owner_id": member.id,
-                    "locked": False,
+                    "locked": is_initially_locked,
                     "created_at": datetime.now(timezone.utc),
                     "participants": [member.id],
                     "panel_message_id": panel_msg.id if panel_msg else None,
@@ -851,8 +879,24 @@ class TempVoiceEngineCog(commands.Cog):
             doc["owner_id"] = new_owner_id
 
             try:
+                # Grant full owner rights to new owner
+                new_ow = channel.overwrites_for(new_owner)
+                new_ow.connect = True
+                new_ow.view_channel = True
+                new_ow.speak = True
+                new_ow.manage_channels = True
+                new_ow.move_members = True
                 await channel.set_permissions(
-                    new_owner, connect=True, reason="Temp voice ownership transferred"
+                    new_owner, overwrite=new_ow, reason="Temp voice ownership transferred"
+                )
+                # Revoke manage permissions from previous owner
+                prev_ow = channel.overwrites_for(interaction.user)
+                prev_ow.manage_channels = None
+                prev_ow.move_members = None
+                await channel.set_permissions(
+                    interaction.user,
+                    overwrite=prev_ow,
+                    reason="Temp voice ownership transferred (revoke previous owner manage perms)",
                 )
             except Exception as e:
                 logger.warning("Error setting permissions on transfer: %s", e)

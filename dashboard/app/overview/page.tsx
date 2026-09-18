@@ -5,18 +5,14 @@ import {
   Hash,
   Layers,
   AlertTriangle,
-  ArrowRight,
   Server,
-  Wrench,
 } from "lucide-react";
 
 import {
   getBotStats,
-  getGuilds,
   getHealth,
   BotStats,
   GuildOverview,
-  GuildSummary,
   HealthResponse,
   ControlPlaneError,
 } from "@/lib/control-plane";
@@ -33,7 +29,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { notFound } from "next/navigation";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { RetryButton } from "@/components/retry-button";
 
 export const dynamic = "force-dynamic";
@@ -54,18 +49,15 @@ export default async function OverviewPage() {
   }
 
   let stats: BotStats | null = null;
-  let guilds: GuildSummary[] = [];
   let health: HealthResponse = { status: "ok", db: true, version: "0.1.0" };
   let error: string | null = null;
 
   try {
-    const [st, gl, hlth] = await Promise.all([
+    const [st, hlth] = await Promise.all([
       getBotStats(),
-      getGuilds().catch(() => [] as GuildSummary[]),
       getHealth().catch(() => ({ status: "ok", db: true, version: "0.1.0" }) as HealthResponse),
     ]);
     stats = st;
-    guilds = gl;
     health = hlth;
   } catch (err: unknown) {
     error =
@@ -220,65 +212,6 @@ export default async function OverviewPage() {
             )}
           </div>
         </div>
-      </div>
-
-      {/* All servers list */}
-      <div className="rounded-[4px] border border-border/70 bg-card p-4 space-y-4">
-        <div className="flex items-center justify-between border-b border-border/60 pb-3">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Servers</h3>
-            <p className="text-xs text-muted-foreground">
-              Every server the bot is a member of. Open one to manage its settings.
-            </p>
-          </div>
-          <Wrench className="size-4 text-muted-foreground" />
-        </div>
-
-        {guilds.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-3">
-            No servers reported by the control plane yet.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {guilds.map((guild) => (
-              <Link
-                key={guild.id}
-                href={`/g/${guild.id}/server/general`}
-                className="group rounded-[4px] border border-border/70 bg-muted/10 p-3 hover:border-primary/50 hover:bg-muted/25 transition-colors space-y-3 min-w-0"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Avatar className="size-8 rounded-[4px] border border-border shrink-0">
-                    {guild.icon_url && (
-                      <AvatarImage src={guild.icon_url} alt={guild.name} />
-                    )}
-                    <AvatarFallback className="rounded-[4px] bg-muted text-xs font-semibold">
-                      {guild.name.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold text-foreground truncate">
-                      {guild.name}
-                    </div>
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
-                      {guild.id}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                  <span>
-                    {guild.member_count !== null && guild.member_count !== undefined
-                      ? `${guild.member_count.toLocaleString()} members`
-                      : "—"}
-                  </span>
-                  <span className="flex items-center gap-1 group-hover:text-foreground transition-colors">
-                    Manage
-                    <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Roadmap (Unbuilt) */}

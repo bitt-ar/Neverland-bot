@@ -86,11 +86,12 @@ async def fetch_image_bytes(url: str, max_bytes: int = MAX_IMAGE_SIZE_BYTES) -> 
     if not url or not url.lower().startswith(("http://", "https://")):
         return None
     try:
-        async with aiohttp.ClientSession() as session:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
                     return None
-                data = await resp.content.read(max_bytes + 1)
+                data = await resp.read()
                 if len(data) > max_bytes:
                     return None
                 return data

@@ -133,13 +133,11 @@ async def replace_message_reaction_roles(guild_id: int, message_id: int | str, p
     if msg_id_str.isdigit():
         id_filter.append(int(msg_id_str))
 
-    await db.reaction_roles.delete_many({"message_id": {"$in": id_filter}})
-
+    doc = None
     if isinstance(pairs_or_doc, dict):
         doc = dict(pairs_or_doc)
         doc["guild_id"] = int(guild_id)
         doc["message_id"] = msg_id_str
-        await db.reaction_roles.insert_one(doc)
     elif isinstance(pairs_or_doc, list):
         pairs = []
         for i, item in enumerate(pairs_or_doc):
@@ -164,7 +162,13 @@ async def replace_message_reaction_roles(guild_id: int, message_id: int | str, p
             "enabled": True,
             "pairs": pairs,
         }
-        await db.reaction_roles.insert_one(doc)
+
+    if doc is not None:
+        await db.reaction_roles.replace_one(
+            {"message_id": {"$in": id_filter}},
+            doc,
+            upsert=True,
+        )
 
     await reload_reaction_roles()
 

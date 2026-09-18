@@ -16,8 +16,8 @@ const ipRateLimits = new Map<string, RateLimitEntry>();
 function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
   const now = Date.now();
 
-  // Clean up expired entries if map grows
-  if (ipRateLimits.size > 1000) {
+  // Proactively clean up expired entries
+  if (ipRateLimits.size > 100) {
     for (const [key, entry] of ipRateLimits.entries()) {
       if (now > entry.resetAt) {
         ipRateLimits.delete(key);
@@ -76,49 +76,62 @@ async function proxyRequest(
   const { path } = await context.params;
   const targetPath = (path || []).join("/");
 
-  // Authentication & Authorization Guard for internal API:
+  // Authentication Guard for internal API:
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Guild-level permission enforcement:
+  // Global bot routes (bot logs, global stats) are restricted to Bot Owners
+  const isGlobalRestricted =
+    targetPath === "stats" ||
+    targetPath === "logs" ||
+    targetPath.startsWith("bot/");
+
+  if (isGlobalRestricted && !user.isOwner) {
+    return NextResponse.json(
+      { error: "Forbidden: Global bot diagnostics are restricted to bot owners." },
+      { status: 403 }
+    );
+  }
+
+  // Guild-level permission enforcement (C-1):
+  // Check ALL HTTP methods (GET, POST, PUT, PATCH, DELETE) for any guild-scoped route
   if (path && path[0] === "guilds" && path[1] && /^\d+$/.test(path[1])) {
     const guildId = path[1];
-    // For mutating requests (POST, PUT, PATCH, DELETE) on guild endpoints:
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-      try {
-        const overview = await getGuildOverview(guildId, user.id);
-        const userIds = user.id ? user.id.split(",").map((s) => s.trim()) : [];
-        const isAllowed =
-          overview.is_admin === true ||
-          (overview.owner_id && userIds.includes(overview.owner_id));
+    try {
+      const overview = await getGuildOverview(guildId, user.id);
+      const userIds = user.id ? user.id.split(",").map((s) => s.trim()) : [];
+      const isAllowed =
+        overview.is_admin === true ||
+        (overview.owner_id && userIds.includes(overview.owner_id));
 
-        if (!isAllowed) {
-          return NextResponse.json(
-            { error: "Forbidden: You do not have Administrator permissions in this server." },
-            { status: 403 }
-          );
-        }
-      } catch {
+      if (!isAllowed) {
         return NextResponse.json(
-          { error: "Forbidden: Could not verify Administrator permissions." },
+          { error: "Forbidden: You do not have Administrator permissions in this server." },
           { status: 403 }
         );
       }
+    } catch {
+      return NextResponse.json(
+        { error: "Forbidden: Could not verify Administrator permissions." },
+        { status: 403 }
+      );
     }
   }
 
   const baseUrl = process.env.CONTROL_PLANE_URL || "http://127.0.0.1:8800";
   const cleanBase = baseUrl.replace(/\/+$/, "");
 
-  const search = request.nextUrl.search;
-  const urlObj = new URL(`${cleanBase}/${targetPath}${search}`);
-  if (user?.id && !urlObj.searchParams.has("user_id")) {
-    urlObj.searchParams.set("user_id", user.id);
+  // H-1: Never trust client-provided user_id in search params; enforce authenticated session user
+  const searchParams = new URLSearchParams(request.nextUrl.search);
+  searchParams.delete("user_id");
+  if (user?.id) {
+    searchParams.set("user_id", user.id);
   }
-  const fullUrl = urlObj.toString();
+  const queryString = searchParams.toString();
+  const fullUrl = `${cleanBase}/${targetPath}${queryString ? `?${queryString}` : ""}`;
 
   try {
     const controller = new AbortController();

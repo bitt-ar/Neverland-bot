@@ -76,7 +76,7 @@ export default function LoginPage() {
           </Button>
 
           <p className="text-[11px] text-center text-muted-foreground leading-normal">
-            Only servers where you have <span className="font-semibold text-foreground/80">Manage Server</span> or <span className="font-semibold text-foreground/80">Administrator</span> permissions will be accessible.
+            Only servers where you have <span className="font-semibold text-foreground/80">Administrator</span> permissions or are the server owner will be accessible.
           </p>
         </div>
 
@@ -84,11 +84,11 @@ export default function LoginPage() {
         <div className="border-t border-border/60 pt-4 space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Sparkles className="size-3.5 text-primary shrink-0" />
-            <span>Bot Owner gets instant access to global metrics & all servers</span>
+            <span>Bot Owner gets instant access to global metrics & diagnostics</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Shield className="size-3.5 text-primary shrink-0" />
-            <span>Regular admins manage only their authorized servers securely</span>
+            <span>Administrators manage only their authorized servers securely</span>
           </div>
         </div>
       </div>

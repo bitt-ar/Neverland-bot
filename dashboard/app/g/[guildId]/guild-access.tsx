@@ -17,8 +17,8 @@ import { RetryButton } from "@/components/retry-button";
 /**
  * Shared guard for guild-scoped pages:
  * 1. Checks that the user is logged in (in production).
- * 2. Verifies that the user has permission to manage this guild (bot owners can manage all;
- *    regular users can only manage their own authorized guilds).
+ * 2. Verifies that the user has an active Administrator role or is the server owner.
+ *    (Bot owners also only access servers they personally manage).
  * 3. Verifies that the bot is actually in the guild.
  */
 export async function checkGuildAccess(guildId: string) {
