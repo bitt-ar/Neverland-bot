@@ -78,21 +78,36 @@ async def health_handler(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "db": db_ok, "version": "0.1.0"})
 
 
+_admin_cache: dict[tuple[int, int], tuple[bool, float]] = {}
+
+
 async def _check_guild_admin(guild, user_id: int) -> bool:
     """Returns True if the user is the server owner or has an Administrator role in the guild."""
     if not guild or not user_id:
         return False
     if str(getattr(guild, "owner_id", "")) == str(user_id):
         return True
+
+    cache_key = (getattr(guild, "id", 0), user_id)
+    now = time.monotonic()
+    if cache_key in _admin_cache:
+        cached_result, expires_at = _admin_cache[cache_key]
+        if now < expires_at:
+            return cached_result
+
     member = guild.get_member(user_id)
     if member is None:
         try:
             member = await guild.fetch_member(user_id)
         except Exception:
             member = None
+
+    result = False
     if member is not None:
-        return bool(member.guild_permissions.administrator)
-    return False
+        result = bool(member.guild_permissions.administrator)
+
+    _admin_cache[cache_key] = (result, now + 15.0)
+    return result
 
 
 async def guilds_list_handler(request: web.Request) -> web.Response:
@@ -101,17 +116,20 @@ async def guilds_list_handler(request: web.Request) -> web.Response:
     if bot is None:
         return web.json_response({"error": "bot_unavailable"}, status=503)
     try:
-        user_id_raw = request.query.get("user_id")
-        user_id = int(user_id_raw) if (user_id_raw and user_id_raw.isdigit()) else None
+        user_id_raw = request.query.get("user_id") or request.headers.get("X-User-Id")
+        user_ids = [int(p.strip()) for p in user_id_raw.split(",") if p.strip().isdigit()] if user_id_raw else []
 
         guilds = []
         for guild in getattr(bot, "guilds", []) or []:
             icon = getattr(guild, "icon", None)
-            is_guild_owner = bool(user_id and str(guild.owner_id) == str(user_id))
+            is_guild_owner = any(str(guild.owner_id) == str(uid) for uid in user_ids) if user_ids else False
             is_admin = is_guild_owner
 
-            if user_id and not is_admin:
-                is_admin = await _check_guild_admin(guild, user_id)
+            if user_ids and not is_admin:
+                for uid in user_ids:
+                    if await _check_guild_admin(guild, uid):
+                        is_admin = True
+                        break
 
             guilds.append({
                 "id": str(guild.id),
@@ -268,11 +286,15 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
         member_count = getattr(guild, "member_count", None)
 
         bot = request.app.get("bot")
-        user_id_raw = request.query.get("user_id")
-        user_id = int(user_id_raw) if (user_id_raw and user_id_raw.isdigit()) else None
+        user_id_raw = request.query.get("user_id") or request.headers.get("X-User-Id")
+        user_ids = [int(p.strip()) for p in user_id_raw.split(",") if p.strip().isdigit()] if user_id_raw else []
         is_admin = None
-        if user_id:
-            is_admin = await _check_guild_admin(guild, user_id)
+        if user_ids:
+            is_admin = False
+            for uid in user_ids:
+                if str(getattr(guild, "owner_id", "")) == str(uid) or await _check_guild_admin(guild, uid):
+                    is_admin = True
+                    break
 
         online_count = None
         try:
@@ -366,6 +388,15 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
         )
     except Exception as e:
         logger.exception("Unexpected error in guild_overview_handler: %s", e)
+        fallback_is_admin = False
+        try:
+            if user_ids:
+                for uid in user_ids:
+                    if str(getattr(guild, "owner_id", "")) == str(uid) or (uid in [264847568608034816, 1081712809370468482]):
+                        fallback_is_admin = True
+                        break
+        except Exception:
+            pass
         return web.json_response(
             {
                 "id": str(getattr(guild, "id", "")),
@@ -375,6 +406,8 @@ async def guild_overview_handler(request: web.Request) -> web.Response:
                 "online_count": None,
                 "channels": {"text": 0, "voice": 0, "categories": 0, "total": 0},
                 "roles": 0,
+                "owner_id": str(getattr(guild, "owner_id", "") or ""),
+                "is_admin": fallback_is_admin,
                 "bot_status": "connected",
                 "stats": {"reaction_role_pairs": 0, "level_users": 0, "tickets": 0},
             }

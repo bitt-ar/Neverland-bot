@@ -101,15 +101,14 @@ export function AppHeader({ authEnabled = false }: AppHeaderProps) {
 
   // Filter guilds visible to the current user (only their own managed servers in prod, all in dev)
   const visibleGuilds = React.useMemo(() => {
-    if (!authEnabled) return guilds;
     if (!currentUser) return guilds;
+    const userIds = currentUser.id ? currentUser.id.split(",").map((s) => s.trim()) : [];
     return guilds.filter((g) => {
       if (g.is_admin === true) return true;
-      if (g.owner_id === currentUser.id) return true;
-      if (currentUser.managedGuildIds && currentUser.managedGuildIds.includes(g.id)) return true;
+      if (userIds.includes(g.owner_id || "")) return true;
       return false;
     });
-  }, [guilds, currentUser, authEnabled]);
+  }, [guilds, currentUser]);
 
 
   const fetchHealth = React.useCallback(async () => {

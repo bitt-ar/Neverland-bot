@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { getGuildOverview } from "@/lib/control-plane";
+
+export const dynamic = "force-dynamic";
 
 interface RateLimitEntry {
   count: number;
@@ -71,11 +75,50 @@ async function proxyRequest(
 
   const { path } = await context.params;
   const targetPath = (path || []).join("/");
+
+  // Authentication & Authorization Guard for internal API:
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Guild-level permission enforcement:
+  if (path && path[0] === "guilds" && path[1] && /^\d+$/.test(path[1])) {
+    const guildId = path[1];
+    // For mutating requests (POST, PUT, PATCH, DELETE) on guild endpoints:
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      try {
+        const overview = await getGuildOverview(guildId, user.id);
+        const userIds = user.id ? user.id.split(",").map((s) => s.trim()) : [];
+        const isAllowed =
+          overview.is_admin === true ||
+          (overview.owner_id && userIds.includes(overview.owner_id));
+
+        if (!isAllowed) {
+          return NextResponse.json(
+            { error: "Forbidden: You do not have Administrator permissions in this server." },
+            { status: 403 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: "Forbidden: Could not verify Administrator permissions." },
+          { status: 403 }
+        );
+      }
+    }
+  }
+
   const baseUrl = process.env.CONTROL_PLANE_URL || "http://127.0.0.1:8800";
   const cleanBase = baseUrl.replace(/\/+$/, "");
 
   const search = request.nextUrl.search;
-  const fullUrl = `${cleanBase}/${targetPath}${search}`;
+  const urlObj = new URL(`${cleanBase}/${targetPath}${search}`);
+  if (user?.id && !urlObj.searchParams.has("user_id")) {
+    urlObj.searchParams.set("user_id", user.id);
+  }
+  const fullUrl = urlObj.toString();
 
   try {
     const controller = new AbortController();
@@ -85,6 +128,10 @@ async function proxyRequest(
       "X-Internal-Secret": secret,
       Accept: "application/json",
     };
+
+    if (user?.id) {
+      headers["X-User-Id"] = user.id;
+    }
 
     let body: string | undefined = undefined;
     if (["POST", "PUT", "PATCH"].includes(method)) {

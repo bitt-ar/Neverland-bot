@@ -107,7 +107,7 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
   const [guildName, setGuildName] = useState<string>("Neverland");
 
   // Module state
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [isTogglingState, setIsTogglingState] = useState(false);
 
   // Form states

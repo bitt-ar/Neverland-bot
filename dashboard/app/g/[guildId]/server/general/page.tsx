@@ -362,7 +362,7 @@ export default async function ServerGeneralPage({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           {BUILT_MODULES.map((modDef) => {
             const liveItem = modulesMap.get(modDef.name);
-            const isEnabled = liveItem !== undefined ? liveItem.enabled : true;
+            const isEnabled = liveItem !== undefined ? liveItem.enabled : false;
             const Icon = modDef.icon;
             const stat = modDef.getStatText(liveItem?.stats, overview.stats);
 

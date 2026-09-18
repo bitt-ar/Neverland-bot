@@ -187,7 +187,8 @@ export async function getCurrentUser(cookieGetter?: {
       "264847568608034816";
 
     const acceptedIds = await getAcceptedAdminIds();
-    const isOwner = acceptedIds.includes(devUserId);
+    const devIds = devUserId.split(",").map((s) => s.trim()).filter(Boolean);
+    const isOwner = devIds.some((id) => acceptedIds.includes(id));
 
     return {
       id: devUserId,
@@ -195,8 +196,6 @@ export async function getCurrentUser(cookieGetter?: {
       avatar: null,
       globalName: isOwner ? "Bot Owner" : "Dev User",
       isOwner,
-      // In dev mode, only include servers explicitly configured in DEV_MANAGED_GUILD_IDS or GUILD_ID.
-      // Both Bot Owner and regular users only see their own connected servers on /servers!
       managedGuildIds: (process.env.DEV_MANAGED_GUILD_IDS || process.env.GUILD_ID || "")
         .split(",")
         .map((s) => s.trim())

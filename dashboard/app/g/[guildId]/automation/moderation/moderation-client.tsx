@@ -57,7 +57,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
   const [channels, setChannels] = useState<GuildChannel[]>([]);
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [cases, setCases] = useState<ModerationCase[]>([]);
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [isTogglingState, setIsTogglingState] = useState(false);
 
   // Form states

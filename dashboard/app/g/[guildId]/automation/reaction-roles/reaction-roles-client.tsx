@@ -100,7 +100,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
   const [embedTitle, setEmbedTitle] = useState("");
   const [embedDesc, setEmbedDesc] = useState("");
   const [embedColor, setEmbedColor] = useState("#5865F2");
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [pairs, setPairs] = useState<PairFormItem[]>([
     { id: "1", emoji: "1️⃣", label: "", role_id: "" },
   ]);

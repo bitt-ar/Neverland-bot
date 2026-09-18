@@ -22,14 +22,10 @@ import { RetryButton } from "@/components/retry-button";
  * 3. Verifies that the bot is actually in the guild.
  */
 export async function checkGuildAccess(guildId: string) {
-  // In development mode (no OAuth), access is open to all connected servers
-  if (!isAuthEnabled()) {
-    return null;
-  }
-
+  const authEnabled = isAuthEnabled();
   const user = await getCurrentUser();
 
-  if (!user) {
+  if (authEnabled && !user) {
     return (
       <div className="space-y-6">
         <Card className="max-w-2xl border-destructive/40 bg-destructive/5">
@@ -55,12 +51,12 @@ export async function checkGuildAccess(guildId: string) {
   try {
     const overview = await getGuildOverview(guildId, user?.id);
 
-    // Permission check: users (including bot owner) can only manage servers they own or have Administrator in
+    // Strict Permission check: user MUST be the server owner or have an Administrator role
     if (user) {
+      const userIds = user.id ? user.id.split(",").map((s) => s.trim()) : [];
       const isAllowed =
         overview.is_admin === true ||
-        (overview.owner_id && overview.owner_id === user.id) ||
-        (user.managedGuildIds && user.managedGuildIds.includes(guildId));
+        (overview.owner_id && userIds.includes(overview.owner_id));
 
       if (!isAllowed) {
         return (

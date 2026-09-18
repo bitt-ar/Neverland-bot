@@ -3,6 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+
+export const dynamic = "force-dynamic";
 import { Shield, Sparkles } from "lucide-react";
 import { NeverlandLogo } from "@/components/logo";
 import { Button } from "@/components/ui/button";

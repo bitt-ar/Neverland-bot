@@ -255,7 +255,7 @@ export function DiscordLiveLogs() {
           </div>
         </div>
 
-        {/* Speed / Mode Switcher ("سلاو مود") */}
+        {/* Speed / Mode Switcher (Slow Mode) */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-1 border-t border-border/40">
           <div className="flex items-center gap-1.5 bg-muted/30 p-1 rounded-lg border border-border/60 text-xs">
             <span className="text-[11px] font-medium text-muted-foreground px-1.5 flex items-center gap-1">
