@@ -22,9 +22,14 @@ import { RetryButton } from "@/components/retry-button";
  * 3. Verifies that the bot is actually in the guild.
  */
 export async function checkGuildAccess(guildId: string) {
+  // In development mode (no OAuth), access is open to all connected servers
+  if (!isAuthEnabled()) {
+    return null;
+  }
+
   const user = await getCurrentUser();
 
-  if (!user && isAuthEnabled()) {
+  if (!user) {
     return (
       <div className="space-y-6">
         <Card className="max-w-2xl border-destructive/40 bg-destructive/5">

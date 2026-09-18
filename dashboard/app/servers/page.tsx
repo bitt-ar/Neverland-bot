@@ -36,7 +36,10 @@ export default async function ServersPage() {
   // Filter guilds based on user ownership or live bot admin permissions:
   // Both Bot Owner and Regular User only see servers where they hold Administrator or Ownership!
   const isOwner = Boolean(user?.isOwner);
+  const authEnabled = isAuthEnabled();
   const visibleGuilds = allGuilds.filter((g) => {
+    // In development mode (no OAuth login), all servers where the bot is added for dev/testing are visible
+    if (!authEnabled) return true;
     if (g.is_admin === true) return true;
     if (user?.id && g.owner_id === user.id) return true;
     if (user?.managedGuildIds && user.managedGuildIds.includes(g.id)) return true;
