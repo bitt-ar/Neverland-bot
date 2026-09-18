@@ -185,11 +185,20 @@ async def log_moderation_action(
         except Exception as e:
             logger.warning("Error saving moderation case: %s", e)
 
-    # Post to mod logs channel if configured
+    # Post to mod logs channel if configured (stored in module_configs via the registry)
     try:
         config_doc = {}
-        if database.db is not None:
-            config_doc = await database.db.moderation_config.find_one({"guild_id": guild.id}) or {}
+        registry = getattr(bot, "modules_registry", None)
+        if registry is not None:
+            try:
+                config_doc = await registry.get_config(guild.id, "moderation") or {}
+            except Exception as e:
+                logger.warning("Error reading moderation config via registry: %s", e)
+        if not config_doc and database.db is not None:
+            raw_doc = await database.db.module_configs.find_one(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "module": "moderation"}
+            )
+            config_doc = (raw_doc or {}).get("config") or {}
         logs_ch_id = config_doc.get("mod_logs_channel_id")
         if logs_ch_id:
             ch = guild.get_channel(int(logs_ch_id))

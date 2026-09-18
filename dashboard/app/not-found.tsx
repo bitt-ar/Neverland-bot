@@ -13,9 +13,9 @@ export default function NotFound() {
         The requested resource or page does not exist in the dashboard workspace.
       </p>
       <div className="mt-5">
-        <Button variant="outline" size="sm" render={<Link href="/overview" />} className="text-xs gap-1.5">
+        <Button variant="outline" size="sm" render={<Link href="/servers" />} className="text-xs gap-1.5">
           <ArrowLeft className="size-3.5" />
-          <span>Back to Overview</span>
+          <span>Back to Servers</span>
         </Button>
       </div>
     </div>

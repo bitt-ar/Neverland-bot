@@ -1,0 +1,14 @@
+# Keep secrets and local artifacts out of dashboard images.
+# Without this file, `COPY . .` bakes .env.local (bot token, MongoDB
+# credentials, control-plane secret) into every built image.
+.env*
+!.env.example
+node_modules/
+.next/
+out/
+build/
+*.log
+.DS_Store
+Thumbs.db
+tsconfig.tsbuildinfo
+next-env.d.ts

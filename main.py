@@ -6,10 +6,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.control.server import start_control_plane, stop_control_plane
+from bot.control.server import start_control_plane, stop_control_plane, memory_log_handler
 from core import config, database
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger().addHandler(memory_log_handler)
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=config.PREFIX, intents=intents)
@@ -55,8 +56,8 @@ async def main():
 
 @bot.event
 async def on_ready():
-    print(f"We have logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"Connected servers: {len(bot.guilds)}")
+    logging.info("Discord Gateway Connected: Logged in as %s (ID: %s)", bot.user, bot.user.id)
+    logging.info("Bot is active across %d servers on Discord", len(bot.guilds))
     await bot.change_presence(status=discord.Status.idle, activity=discord.Game("At your service"))
 
     # Automatic Slash Command Sync (Eliminates duplicates by clearing guild-level copies)
@@ -92,6 +93,23 @@ async def on_member_remove(member):
 @bot.event
 async def on_command_error(ctx, error):
     logging.error("Command error in %s: %s", ctx.command, error)
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    command_name = getattr(interaction.command, "qualified_name", "unknown")
+    logging.error("App command error in /%s: %s", command_name, error)
+    if isinstance(error, app_commands.CheckFailure):
+        message = "You don't have permission to use this command here."
+    else:
+        message = "Something went wrong while running that command."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception as report_error:
+        logging.warning("Failed to report app command error to user: %s", report_error)
 
 
 @bot.tree.command(name="avatar", description="Fetch avatar of a user")

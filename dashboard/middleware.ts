@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthEnabled, SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/discord",
+  "/api/auth/callback/discord",
+  "/api/auth/logout",
+  "/api/auth/status",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some(

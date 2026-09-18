@@ -48,6 +48,7 @@ build/
 specs/
 **/specs/
 MEMORY.md
+SECURITY_AND_CODE_REVIEW.md
 docs/
 .commandcode/
 **/.commandcode/

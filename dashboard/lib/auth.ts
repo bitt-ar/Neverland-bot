@@ -1,23 +1,33 @@
 /**
- * Minimal session gate for the dashboard.
+ * Discord OAuth2 and Session Management for Neverland Dashboard.
  *
- * The dashboard proxies admin operations to the bot's control plane, so it MUST
- * not be reachable by anonymous users. This module implements a simple but
- * correctly-signed session cookie:
+ * - In Development (AUTH_ENABLED=false or non-production without AUTH_ENABLED=true):
+ *   No Discord login is required. The dashboard automatically assumes the identity
+ *   of DEV_USER_ID (configured in .env, defaults to OWNER_DISCORD_ID).
+ *   If DEV_USER_ID is the bot owner (or in ADMIN_DISCORD_IDS), they get full
+ *   bot-owner access (Overview and all bot guilds).
+ *   If DEV_USER_ID is changed to any other ID for testing, they get regular-user
+ *   access (Overview is 404, only their managed guilds are visible).
  *
- *   - Set DASHBOARD_PASSWORD to enable the gate (login at /login).
- *   - The session token is `<expiry>.<hmac_sha256(expiry, secret)>` and is
- *     verified with a constant-time comparison — it cannot be forged without
- *     the secret.
- *   - The signing secret falls back to CONTROL_PLANE_SECRET when
- *     DASHBOARD_SESSION_SECRET is not set.
- *
- * Uses Web Crypto (crypto.subtle) so it runs in both the Edge runtime
- * (middleware) and the Node.js runtime (route handlers).
+ * - In Production (AUTH_ENABLED=true):
+ *   Requires signing in with Discord OAuth2 (scopes: identify, guilds).
+ *   The session token is `<expiry>.<base64url(payload)>.<hmac_sha256>`.
+ *   Bot owners see Overview + all bot servers.
+ *   Regular users see only the servers they own or have Manage Server/Admin in.
  */
 
 export const SESSION_COOKIE = "nl_session";
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+export interface UserSession {
+  id: string;
+  username: string;
+  discriminator?: string;
+  avatar: string | null;
+  globalName?: string | null;
+  isOwner: boolean;
+  managedGuildIds?: string[];
+}
 
 const encoder = new TextEncoder();
 
@@ -25,12 +35,49 @@ function getSigningSecret(): string {
   return (
     process.env.DASHBOARD_SESSION_SECRET ||
     process.env.CONTROL_PLANE_SECRET ||
-    ""
+    "neverland_default_secret_key_change_in_production"
   );
 }
 
 export function isAuthEnabled(): boolean {
-  return Boolean(process.env.DASHBOARD_PASSWORD);
+  return (
+    process.env.AUTH_ENABLED === "true" ||
+    (process.env.NODE_ENV === "production" && process.env.AUTH_ENABLED !== "false")
+  );
+}
+
+export function getEnvAdminIds(): string[] {
+  const ids = new Set<string>();
+  if (process.env.OWNER_DISCORD_ID) {
+    ids.add(process.env.OWNER_DISCORD_ID.trim());
+  }
+  if (process.env.DEV_ADMIN_ID) {
+    ids.add(process.env.DEV_ADMIN_ID.trim());
+  }
+  const rawList = process.env.ADMIN_DISCORD_IDS || "";
+  for (const part of rawList.split(",")) {
+    const trimmed = part.trim();
+    if (trimmed) ids.add(trimmed);
+  }
+  return Array.from(ids);
+}
+
+export function getDevAdminIds(): string[] {
+  return getEnvAdminIds();
+}
+
+export async function getAcceptedAdminIds(): Promise<string[]> {
+  const ids = new Set<string>(getEnvAdminIds());
+  try {
+    const { getBotInfo } = await import("@/lib/control-plane");
+    const botInfo = await getBotInfo();
+    for (const ownerId of botInfo.owner_ids || []) {
+      if (ownerId) ids.add(String(ownerId).trim());
+    }
+  } catch {
+    // Control plane offline
+  }
+  return Array.from(ids);
 }
 
 async function hmacHex(payload: string): Promise<string> {
@@ -52,34 +99,69 @@ async function hmacHex(payload: string): Promise<string> {
     .join("");
 }
 
-export async function createSessionToken(
+function base64UrlEncode(str: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str, "utf-8").toString("base64url");
+  }
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecode(str: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str, "base64url").toString("utf-8");
+  }
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+  return atob(base64);
+}
+
+export async function createUserSessionToken(
+  user: UserSession,
   ttlSeconds: number = SESSION_TTL_SECONDS
 ): Promise<string> {
   const expiry = Date.now() + ttlSeconds * 1000;
-  const signature = await hmacHex(String(expiry));
-  return `${expiry}.${signature}`;
+  const payload = base64UrlEncode(JSON.stringify(user));
+  const data = `${expiry}.${payload}`;
+  const signature = await hmacHex(data);
+  return `${data}.${signature}`;
+}
+
+export async function verifyUserSessionToken(
+  token: string | undefined | null
+): Promise<UserSession | null> {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  const [expiryPart, payloadPart, signature] = parts;
+  const expiry = Number(expiryPart);
+  if (!Number.isFinite(expiry) || expiry < Date.now()) return null;
+
+  const expectedSig = await hmacHex(`${expiryPart}.${payloadPart}`);
+  if (expectedSig.length !== signature.length) return null;
+  let diff = 0;
+  for (let i = 0; i < expectedSig.length; i++) {
+    diff |= expectedSig.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  if (diff !== 0) return null;
+
+  try {
+    const rawJson = base64UrlDecode(payloadPart);
+    const data = JSON.parse(rawJson) as UserSession;
+    if (!data?.id) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 export async function verifySessionToken(
   token: string | undefined | null
 ): Promise<boolean> {
-  if (!token) return false;
-  const dotIndex = token.indexOf(".");
-  if (dotIndex <= 0) return false;
-
-  const expiryPart = token.slice(0, dotIndex);
-  const signature = token.slice(dotIndex + 1);
-  const expiry = Number(expiryPart);
-  if (!Number.isFinite(expiry) || expiry < Date.now()) return false;
-
-  const expected = await hmacHex(expiryPart);
-  // Constant-time-ish comparison to avoid leaking prefix matches.
-  if (expected.length !== signature.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
-  }
-  return diff === 0;
+  const user = await verifyUserSessionToken(token);
+  return Boolean(user);
 }
 
 export function sessionCookieOptions() {
@@ -90,4 +172,174 @@ export function sessionCookieOptions() {
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
   };
+}
+
+export async function getCurrentUser(cookieGetter?: {
+  get: (name: string) => { value: string } | undefined;
+}): Promise<UserSession | null> {
+  const authEnabled = isAuthEnabled();
+
+  // In Development Mode:
+  if (!authEnabled) {
+    const devUserId =
+      process.env.DEV_USER_ID?.trim() ||
+      process.env.OWNER_DISCORD_ID?.trim() ||
+      "264847568608034816";
+
+    const acceptedIds = await getAcceptedAdminIds();
+    const isOwner = acceptedIds.includes(devUserId);
+
+    return {
+      id: devUserId,
+      username: isOwner ? "Bot Owner (Dev)" : "Server Admin (Dev)",
+      avatar: null,
+      globalName: isOwner ? "Bot Owner" : "Dev User",
+      isOwner,
+      // In dev mode, only include servers explicitly configured in DEV_MANAGED_GUILD_IDS or GUILD_ID.
+      // Both Bot Owner and regular users only see their own connected servers on /servers!
+      managedGuildIds: (process.env.DEV_MANAGED_GUILD_IDS || process.env.GUILD_ID || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    };
+  }
+
+  // In Production Mode:
+  let cookieObj = cookieGetter;
+  if (!cookieObj) {
+    try {
+      const { cookies } = await import("next/headers");
+      cookieObj = await cookies();
+    } catch {
+      // not in request context
+    }
+  }
+
+  const token = cookieObj?.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  return verifyUserSessionToken(token);
+}
+
+export async function checkAdminAccess(options?: {
+  sessionCookie?: string | null;
+  adminCookie?: string | null;
+}): Promise<boolean> {
+  const user = await getCurrentUser(
+    options?.sessionCookie
+      ? { get: () => ({ value: options.sessionCookie! }) }
+      : undefined
+  );
+  return Boolean(user?.isOwner);
+}
+
+export function getDiscordOAuthUrl(state?: string): string {
+  const clientId =
+    process.env.DISCORD_CLIENT_ID || "1334146880330010644";
+  const redirectUri =
+    process.env.DISCORD_REDIRECT_URI ||
+    `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/auth/callback/discord`;
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: "code",
+    redirect_uri: redirectUri,
+    scope: "identify guilds",
+    prompt: "consent",
+  });
+
+  if (state) {
+    params.set("state", state);
+  }
+
+  return `https://discord.com/oauth2/authorize?${params.toString()}`;
+}
+
+export interface DiscordTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token: string;
+  scope: string;
+}
+
+export interface DiscordUserResponse {
+  id: string;
+  username: string;
+  discriminator: string;
+  avatar: string | null;
+  global_name?: string | null;
+}
+
+export interface DiscordGuildResponse {
+  id: string;
+  name: string;
+  icon: string | null;
+  owner: boolean;
+  permissions: string;
+}
+
+export async function exchangeDiscordCode(
+  code: string,
+  redirectUri: string
+): Promise<DiscordTokenResponse> {
+  const clientId = process.env.DISCORD_CLIENT_ID || "1334146880330010644";
+  const clientSecret = process.env.DISCORD_CLIENT_SECRET || "";
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+  });
+
+  const res = await fetch("https://discord.com/api/v10/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to exchange Discord code (${res.status}): ${errText}`);
+  }
+
+  return (await res.json()) as DiscordTokenResponse;
+}
+
+export async function fetchDiscordUser(accessToken: string): Promise<DiscordUserResponse> {
+  const res = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Discord user profile (${res.status})`);
+  }
+  return (await res.json()) as DiscordUserResponse;
+}
+
+export async function fetchDiscordGuilds(accessToken: string): Promise<DiscordGuildResponse[]> {
+  const res = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Discord user guilds (${res.status})`);
+  }
+  return (await res.json()) as DiscordGuildResponse[];
+}
+
+/**
+ * Checks if a user has Admin or Manage Guild permissions.
+ * Permissions bit 0x8 = ADMINISTRATOR, 0x20 = MANAGE_GUILD.
+ */
+export function canManageGuild(guild: DiscordGuildResponse): boolean {
+  if (guild.owner) return true;
+  try {
+    const perms = BigInt(guild.permissions);
+    const ADMINISTRATOR = BigInt(0x8);
+    const MANAGE_GUILD = BigInt(0x20);
+    return (perms & ADMINISTRATOR) === ADMINISTRATOR || (perms & MANAGE_GUILD) === MANAGE_GUILD;
+  } catch {
+    return false;
+  }
 }

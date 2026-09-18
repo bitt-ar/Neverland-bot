@@ -217,6 +217,51 @@ export async function getGuildRoles(guildId: string): Promise<GuildRolesResponse
   return fetchControlPlane<GuildRolesResponse>(`/guilds/${guildId}/roles`);
 }
 
+export interface GuildSummary {
+  id: string;
+  name: string;
+  icon_url: string | null;
+  member_count: number | null;
+  owner_id: string;
+}
+
+export async function getGuilds(): Promise<GuildSummary[]> {
+  return fetchControlPlane<GuildSummary[]>("/guilds");
+}
+
+export interface BotInfo {
+  id: string;
+  name: string | null;
+  avatar_url: string | null;
+  guild_count: number;
+  owner_ids: string[];
+}
+
+const BOT_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
+let botInfoCache: { data: BotInfo; expiresAt: number } | null = null;
+
+export async function getBotInfo(): Promise<BotInfo> {
+  if (botInfoCache && Date.now() < botInfoCache.expiresAt) {
+    return botInfoCache.data;
+  }
+  const data = await fetchControlPlane<BotInfo>("/bot");
+  botInfoCache = { data, expiresAt: Date.now() + BOT_INFO_CACHE_TTL_MS };
+  return data;
+}
+
+export interface BotStats {
+  guild_count: number;
+  total_members: number;
+  total_channels: number;
+  total_roles: number;
+  modules_enabled: Record<string, number>;
+  db: boolean;
+}
+
+export async function getBotStats(): Promise<BotStats> {
+  return fetchControlPlane<BotStats>("/stats");
+}
+
 export async function getHealth(): Promise<HealthResponse> {
   const baseUrl = process.env.CONTROL_PLANE_URL || "http://127.0.0.1:8800";
   const cleanBase = baseUrl.replace(/\/+$/, "");

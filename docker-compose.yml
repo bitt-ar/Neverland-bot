@@ -30,12 +30,13 @@ services:
       - CONTROL_PLANE_URL=http://bot:8800
       - CONTROL_PLANE_SECRET=${CONTROL_PLANE_SECRET}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # Dev-mode default guild (production ignores it for navigation).
       - GUILD_ID=${GUILD_ID:-}
-      - AUTH_ENABLED=${AUTH_ENABLED:-false}
-      # Locks the dashboard (and its control-plane proxy) behind a password.
-      # Leave empty for local development only.
+      # Auth is enabled in production (NODE_ENV=production) when a password is set.
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
       - DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET:-}
+      # Extra bot-admin Discord IDs for the Overview gate (app owner is always accepted).
+      - ADMIN_DISCORD_IDS=${ADMIN_DISCORD_IDS:-}
     depends_on:
       - bot
 

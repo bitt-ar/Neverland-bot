@@ -30,7 +30,6 @@ async def init():
     await db.temp_voice_meta.create_index([("guild_id", ASCENDING)], unique=True)
     await db.giveaways.create_index([("guild_id", ASCENDING)])
     await db.giveaways_config.create_index([("guild_id", ASCENDING)], unique=True)
-    await db.moderation_config.create_index([("guild_id", ASCENDING)], unique=True)
     await db.moderation_cases.create_index([("guild_id", ASCENDING), ("case_id", ASCENDING)], unique=True)
     await db.moderation_cases.create_index([("guild_id", ASCENDING), ("user_id", ASCENDING)])
 

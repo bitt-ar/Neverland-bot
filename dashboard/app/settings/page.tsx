@@ -1,7 +1,10 @@
+import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 import { Activity, CheckCircle2, Cpu, KeyRound, XCircle } from "lucide-react";
 
 import pkg from "../../package.json";
 import { getHealth, HealthResponse } from "@/lib/control-plane";
+import { getDevAdminIds, isAuthEnabled, checkAdminAccess, SESSION_COOKIE } from "@/lib/auth";
 import {
   Card,
   CardContent,
@@ -11,13 +14,25 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RetryButton } from "@/components/retry-button";
+import { DiscordLiveLogs } from "./discord-live-logs";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE)?.value || null;
+
+  const isAdmin = await checkAdminAccess({ sessionCookie });
+  if (!isAdmin) {
+    notFound();
+  }
+
   const isSecretConfigured = Boolean(process.env.CONTROL_PLANE_SECRET);
   const guildId = process.env.GUILD_ID;
-  const isAuthEnabled = process.env.AUTH_ENABLED === "true";
+  const authEnabled = isAuthEnabled();
+  const devUserId = process.env.DEV_USER_ID || process.env.OWNER_DISCORD_ID || "264847568608034816";
+  const discordClientId = process.env.DISCORD_CLIENT_ID;
+  const adminIdsConfigured = getDevAdminIds().length > 0;
   const dashboardVersion = pkg.version || "0.1.0";
 
   let health: HealthResponse | null = null;
@@ -133,9 +148,9 @@ export default async function SettingsPage() {
               </Badge>
             </div>
 
-            {/* GUILD_ID presence */}
+            {/* GUILD_ID presence (dev-mode default guild) */}
             <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2 flex-wrap gap-1.5 min-w-0">
-              <span className="text-muted-foreground shrink-0">GUILD_ID</span>
+              <span className="text-muted-foreground shrink-0">GUILD_ID (Dev default)</span>
               {guildId ? (
                 <span className="font-mono text-foreground font-semibold break-all">{guildId}</span>
               ) : (
@@ -145,15 +160,47 @@ export default async function SettingsPage() {
               )}
             </div>
 
-            {/* AUTH_ENABLED state */}
-            <div className="flex items-center justify-between text-xs flex-wrap gap-1.5 min-w-0">
-              <span className="text-muted-foreground shrink-0">AUTH_ENABLED</span>
+            {/* Auth mode */}
+            <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2 flex-wrap gap-1.5 min-w-0">
+              <span className="text-muted-foreground shrink-0">Authentication</span>
               <Badge variant="secondary" className="font-normal text-[11px] shrink-0">
-                {isAuthEnabled ? "Enabled (OAuth2)" : "Disabled (Dev mode)"}
+                {authEnabled ? "Discord OAuth2 (Production)" : "DEV_USER_ID Simulation (Dev Mode)"}
+              </Badge>
+            </div>
+
+            {/* Active Developer User */}
+            <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2 flex-wrap gap-1.5 min-w-0">
+              <span className="text-muted-foreground shrink-0">Dev User / Owner ID</span>
+              <span className="font-mono text-foreground font-semibold break-all">{devUserId}</span>
+            </div>
+
+            {/* Discord OAuth Client ID */}
+            <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2 flex-wrap gap-1.5 min-w-0">
+              <span className="text-muted-foreground shrink-0">Discord Client ID</span>
+              <Badge
+                variant="outline"
+                className={
+                  discordClientId
+                    ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/10 shrink-0 font-mono"
+                    : "border-amber-500/30 text-amber-500 bg-amber-500/10 shrink-0"
+                }
+              >
+                {discordClientId || "Not Set"}
+              </Badge>
+            </div>
+
+            {/* ADMIN_DISCORD_IDS presence */}
+            <div className="flex items-center justify-between text-xs flex-wrap gap-1.5 min-w-0">
+              <span className="text-muted-foreground shrink-0">ADMIN_DISCORD_IDS</span>
+              <Badge variant="secondary" className="font-normal text-[11px] shrink-0">
+                {adminIdsConfigured ? "Configured" : "Unset (app owner used)"}
               </Badge>
             </div>
           </CardContent>
         </Card>
+
+        {/* Discord Live Server Logs (with slow mode and crash watchdog) */}
+        <DiscordLiveLogs />
 
         {/* Card 3: Version Info */}
         <Card className="border border-border/80 md:col-span-2">

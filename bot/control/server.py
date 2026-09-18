@@ -7,9 +7,41 @@ from aiohttp import web
 import discord
 from pydantic import ValidationError
 
+from collections import deque
+import time
+import datetime
 from core import config, database
 
 logger = logging.getLogger(__name__)
+
+
+class MemoryLogHandler(logging.Handler):
+    def __init__(self, maxlen: int = 300):
+        super().__init__()
+        self.buffer = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            formatted_msg = record.getMessage()
+            entry = {
+                "id": f"{int(record.created * 1000)}-{record.msecs}",
+                "timestamp": record.created,
+                "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
+                "iso": datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": formatted_msg,
+            }
+            self.buffer.append(entry)
+        except Exception:
+            self.handleError(record)
+
+
+memory_log_handler = MemoryLogHandler()
+memory_log_handler.setLevel(logging.INFO)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(memory_log_handler)
 
 
 async def check_db() -> bool:
@@ -42,6 +74,122 @@ async def auth_middleware(request: web.Request, handler):
 async def health_handler(request: web.Request) -> web.Response:
     db_ok = await check_db()
     return web.json_response({"status": "ok", "db": db_ok, "version": "0.1.0"})
+
+
+async def guilds_list_handler(request: web.Request) -> web.Response:
+    """Lists every guild the bot is currently in (dashboard server picker)."""
+    bot = request.app.get("bot")
+    if bot is None:
+        return web.json_response({"error": "bot_unavailable"}, status=503)
+    try:
+        guilds = []
+        for guild in getattr(bot, "guilds", []) or []:
+            icon = getattr(guild, "icon", None)
+            guilds.append({
+                "id": str(guild.id),
+                "name": getattr(guild, "name", ""),
+                "icon_url": str(icon.url) if icon else None,
+                "member_count": getattr(guild, "member_count", None),
+                "owner_id": str(getattr(guild, "owner_id", "") or ""),
+            })
+        guilds.sort(key=lambda g: (g.get("name") or "").lower())
+        return web.json_response(guilds)
+    except Exception as e:
+        logger.exception("Error in guilds_list_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def bot_info_handler(request: web.Request) -> web.Response:
+    """Bot identity + application owner IDs (used by the dashboard admin gate)."""
+    bot = request.app.get("bot")
+    if bot is None:
+        return web.json_response({"error": "bot_unavailable"}, status=503)
+    try:
+        app_info = getattr(bot, "application", None)
+        owner_ids = []
+        team = getattr(app_info, "team", None)
+        if team is not None:
+            for member in getattr(team, "members", None) or []:
+                member_id = getattr(member, "id", None)
+                if member_id:
+                    owner_ids.append(str(member_id))
+        else:
+            owner = getattr(app_info, "owner", None)
+            if owner is not None and getattr(owner, "id", None):
+                owner_ids.append(str(owner.id))
+        user = getattr(bot, "user", None)
+        return web.json_response({
+            "id": str(getattr(user, "id", "") or ""),
+            "name": getattr(user, "name", None),
+            "avatar_url": str(user.display_avatar.url) if user else None,
+            "guild_count": len(getattr(bot, "guilds", []) or []),
+            "owner_ids": owner_ids,
+        })
+    except Exception as e:
+        logger.exception("Error in bot_info_handler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def bot_stats_handler(request: web.Request) -> web.Response:
+    """Bot-wide aggregate stats for the admin overview."""
+    bot = request.app.get("bot")
+    if bot is None:
+        return web.json_response({"error": "bot_unavailable"}, status=503)
+    try:
+        guilds = list(getattr(bot, "guilds", []) or [])
+        total_members = sum(getattr(g, "member_count", 0) or 0 for g in guilds)
+        total_channels = sum(len(getattr(g, "channels", []) or []) for g in guilds)
+        total_roles = sum(max(len(getattr(g, "roles", []) or []) - 1, 0) for g in guilds)
+        modules_enabled = {}
+        if database.db is not None:
+            try:
+                cursor = database.db.module_states.find({"enabled": True}, {"module": 1})
+                async for doc in cursor:
+                    name = doc.get("module")
+                    if name:
+                        modules_enabled[name] = modules_enabled.get(name, 0) + 1
+            except Exception as e:
+                logger.warning("Error aggregating module_states: %s", e)
+        return web.json_response({
+            "guild_count": len(guilds),
+            "total_members": total_members,
+            "total_channels": total_channels,
+            "total_roles": total_roles,
+            "modules_enabled": modules_enabled,
+            "db": await check_db(),
+        })
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def bot_logs_handler(request: web.Request) -> web.Response:
+    """Returns buffered live bot and gateway logs."""
+    bot = request.app.get("bot")
+    guild_id = request.match_info.get("guild_id") or request.match_info.get("id") or request.query.get("guild_id")
+    limit_param = request.query.get("limit", "150")
+    try:
+        limit = min(max(int(limit_param), 10), 300)
+    except ValueError:
+        limit = 150
+
+    logs = list(memory_log_handler.buffer)
+    if guild_id:
+        logs = [l for l in logs if guild_id in l.get("message", "") or l.get("level") in ("ERROR", "CRITICAL")]
+
+    bot_info = {
+        "user": str(bot.user) if (bot and getattr(bot, "user", None)) else "Neverland",
+        "user_id": str(bot.user.id) if (bot and getattr(bot, "user", None)) else None,
+        "is_ready": bot.is_ready() if (bot and hasattr(bot, "is_ready")) else False,
+        "latency_ms": round(bot.latency * 1000, 1) if (bot and getattr(bot, "latency", None) is not None) else 0,
+        "guild_count": len(getattr(bot, "guilds", [])) if bot else 0,
+        "shard_count": getattr(bot, "shard_count", 1) or 1,
+    }
+
+    return web.json_response({
+        "status": "ok",
+        "bot": bot_info,
+        "logs": logs[-limit:],
+    })
 
 
 def _get_guild(request: web.Request):
@@ -1519,8 +1667,14 @@ def create_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth_middleware])
     app["bot"] = bot
     app.router.add_get("/health", health_handler)
+    app.router.add_get("/guilds", guilds_list_handler)
+    app.router.add_get("/bot", bot_info_handler)
+    app.router.add_get("/stats", bot_stats_handler)
+    app.router.add_get("/bot/logs", bot_logs_handler)
+    app.router.add_get("/logs", bot_logs_handler)
 
     for prefix in ("/guilds/{guild_id}", "/guilds/{id}"):
+        app.router.add_get(f"{prefix}/logs", bot_logs_handler)
         app.router.add_get(f"{prefix}/overview", guild_overview_handler)
         app.router.add_get(f"{prefix}/modules/overview", guild_modules_overview_handler)
         app.router.add_get(f"{prefix}/channels", guild_channels_handler)
