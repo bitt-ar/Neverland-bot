@@ -3,12 +3,11 @@ import logging
 import random
 
 import discord
-import requests
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 from core import config, database
-from core.images import circle
+from core.images import circle, fetch_image_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +64,12 @@ class WelcomeEngineCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        # Automatic join roles (controlled by the welcome module's auto-role toggle)
-        await self._assign_join_roles(member)
-
-        # Welcome message & image gated by module enabled state
+        # Auto-role and welcome messages only run when the module is enabled for
+        # this guild — previously join roles were assigned even when disabled.
         if not self.registry or not await self.registry.is_enabled(member.guild.id, "welcome"):
             return
+
+        await self._assign_join_roles(member)
 
         config_data = await self.registry.get_config(member.guild.id, "welcome")
         channel_id = config_data.get("channel_id")
@@ -104,8 +103,10 @@ class WelcomeEngineCog(commands.Cog):
             image = random.choice(images)
             base = Image.open(WELCOME_DIR / "base.png").convert("RGBA")
             back = Image.open(WELCOME_DIR / image).convert("RGBA")
-            response = requests.get(member.display_avatar.url, timeout=10)
-            pfp = Image.open(BytesIO(response.content)).convert("RGBA")
+            pfp_bytes = await fetch_image_bytes(member.display_avatar.url)
+            if pfp_bytes is None:
+                raise ValueError("avatar download failed")
+            pfp = Image.open(BytesIO(pfp_bytes)).convert("RGBA")
             pfp = pfp.resize((256, 256))
             pfp = circle(pfp, (206, 206))
             draw = ImageDraw.Draw(base)

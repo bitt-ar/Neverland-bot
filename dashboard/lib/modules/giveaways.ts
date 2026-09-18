@@ -21,6 +21,9 @@ export interface GiveawayItem {
   image_url?: string;
   description?: string;
   Description?: string;
+  status?: string;
+  channel?: string;
+  Channel?: string;
 }
 
 export interface GiveawaysConfig {

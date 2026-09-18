@@ -278,8 +278,14 @@ class ReactionRolesCommandsCog(commands.Cog):
     ):
         if not await self._check_enabled(interaction):
             return
+        if database.db is None:
+            await interaction.response.send_message("Database unavailable.", ephemeral=True)
+            return
         result = await database.db.reaction_roles.delete_many(
-            {"message_id": {"$in": [message.id, str(message.id)]}}
+            {
+                "message_id": {"$in": [message.id, str(message.id)]},
+                "guild_id": {"$in": [interaction.guild_id, str(interaction.guild_id)]},
+            }
         )
         await database.reload_reaction_roles()
         if result.deleted_count == 0:

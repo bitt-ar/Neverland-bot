@@ -933,14 +933,20 @@ class TicketsEngineCog(commands.Cog):
             doc["closed_at"] = None
             doc["closed_by"] = None
 
-            # Restore ViewChannel for creator
+            # Restore access for the creator and every non-staff participant —
+            # closing revoked ViewChannel for all of them, reopening must restore
+            # all of them (previously only the creator was restored).
+            participants = set(doc.get("participants", []))
             creator_id = doc.get("user_id")
             if creator_id:
-                creator_member = guild.get_member(creator_id)
-                if creator_member:
+                participants.add(creator_id)
+
+            for uid in participants:
+                p_member = guild.get_member(uid)
+                if p_member and not is_ticket_staff(p_member, category):
                     try:
                         await channel.set_permissions(
-                            creator_member,
+                            p_member,
                             view_channel=True,
                             send_messages=True,
                             read_message_history=True,
@@ -949,7 +955,7 @@ class TicketsEngineCog(commands.Cog):
                             reason=f"Ticket reopened by {member}",
                         )
                     except Exception as e:
-                        logger.warning("Error restoring creator overwrite: %s", e)
+                        logger.warning("Error restoring ticket overwrite for %s: %s", uid, e)
 
             await self._update_ticket_control_message(channel, doc, category, status="open", claimed_by=None)
             await channel.send(

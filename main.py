@@ -102,37 +102,51 @@ async def avatar(interaction: discord.Interaction, member: discord.Member = None
 
 @bot.tree.command(name="help")
 async def help_command(interaction: discord.Interaction):
-    embed = ("# **Chat & Utilities** \n"
-             " * **/avatar              Fetch avatar of a user** \n"
-             " * **/clear               Clean up messages (admin/moderator)** \n"
-             "# **Leveling & Rank**\n"
-             " * **/rank                Display your rank card & server position**\n"
-             " * **/leaderboard         Top 10 members in this server**\n"
-             " * **/theme               Change your rank card theme (Dark, Orange, Purple)**\n"
-             " * **/add_background      Upload a custom rank card background image**\n"
-             "# **Giveaways**\n"
-             " * **/giveaway            Create an interactive giveaway**\n"
-             " * **/giveaway_logs       Configure the giveaway logs channel**\n"
-             " * **/reroll              Reroll a completed giveaway**\n"
-             "# **Support Tickets & Voice**\n"
-             " * **/tickets status      View ticket system configuration & stats**\n"
-             " * **/tickets publish-panel Publish or refresh the ticket panel**\n"
-             " * **/tickets logs        Set the ticket audit & transcript logs channel**\n"
-             " * **/tempvoice           View active temporary voice lounges**\n"
-             "# **Moderation & Security**\n"
-             " * **/warn, /warnings     Issue and review member warnings**\n"
-             " * **/timeout, /untimeout Mute/unmute members dynamically**\n"
-             " * **/kick, /ban, /unban  Enforce server moderation actions**\n"
-             " * **/modlogs             View moderation action history**\n"
-             "# **Activity & Admin**\n"
-             " * **/activity            Weekly voice & message statistics**\n"
-             " * **/setup               Server settings (welcome, leave)**\n"
-             " * **/levelroles          Configure level role rewards**\n"
-             " * **/reactionrole        Reaction roles wizard**\n"
-             " * **/xp                  Grant XP to a member (admin)**\n"
-             )
+    sections = [
+        ("Chat & Utilities", [
+            "/avatar — Fetch avatar of a user",
+            "/clear — Clean up messages (admin/moderator)",
+        ]),
+        ("Leveling & Rank", [
+            "/rank — Display your rank card & server position",
+            "/leaderboard — Top 10 members in this server",
+            "/theme — Change your rank card theme (Dark, Orange, Purple)",
+            "/add_background — Upload a custom rank card background image",
+        ]),
+        ("Giveaways", [
+            "/giveaway — Create an interactive giveaway",
+            "/giveaway_logs — Configure the giveaway logs channel",
+            "/reroll — Reroll a completed giveaway",
+        ]),
+        ("Support Tickets & Voice", [
+            "/tickets status — View ticket system configuration & stats",
+            "/tickets publish-panel — Publish or refresh the ticket panel",
+            "/tickets logs — Set the ticket audit & transcript logs channel",
+            "/tempvoice — View active temporary voice lounges",
+        ]),
+        ("Moderation & Security", [
+            "/warn, /warnings — Issue and review member warnings",
+            "/timeout, /untimeout — Mute/unmute members dynamically",
+            "/kick, /ban, /unban — Enforce server moderation actions",
+            "/modlogs — View moderation action history",
+        ]),
+        ("Activity & Admin", [
+            "/activity — Weekly voice & message statistics",
+            "/setup — Server settings (welcome, leave)",
+            "/levelroles — Configure level role rewards",
+            "/reactionrole — Reaction roles wizard",
+            "/xp — Grant XP to a member (admin)",
+        ]),
+    ]
 
-    await interaction.response.send_message(embed)
+    embed = discord.Embed(
+        title="📖 Neverland — Command Guide",
+        color=discord.Color.blurple(),
+    )
+    for title, lines in sections:
+        embed.add_field(name=title, value="\n".join(lines), inline=False)
+
+    await interaction.response.send_message(embed=embed)
 
 
 asyncio.run(main())

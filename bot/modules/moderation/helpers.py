@@ -59,10 +59,18 @@ def contains_bad_word(content: str, bad_words: list[str]) -> tuple[bool, Optiona
             return True, word
 
     # 2. Normalized matching (catches f.u.c.k, f u c k, etc.)
+    #    Words of 4+ normalized characters match as substrings; shorter words
+    #    require word boundaries so entries like "ass" do not fire inside
+    #    innocent words such as "class", "bass" or "passport".
     norm_content = normalize_text(content)
     for word in cleaned_words:
         norm_word = normalize_text(word)
-        if norm_word and len(norm_word) >= 3 and norm_word in norm_content:
+        if not norm_word:
+            continue
+        if len(norm_word) >= 4:
+            if norm_word in norm_content:
+                return True, word
+        elif re.search(r"\b" + re.escape(norm_word) + r"\b", norm_content):
             return True, word
 
     return False, None
@@ -71,9 +79,13 @@ def contains_bad_word(content: str, bad_words: list[str]) -> tuple[bool, Optiona
 class SlidingWindowRateLimiter:
     """Sliding-window in-memory message rate limiter for anti-spam."""
 
+    VIOLATION_DECAY_SECONDS = 600  # escalation counter resets after 10 quiet minutes
+    MAX_TRACKED_KEYS = 4096
+
     def __init__(self):
         self._history: dict[tuple[int, int], list[float]] = {}
         self._violations: dict[tuple[int, int], int] = {}
+        self._last_violation: dict[tuple[int, int], float] = {}
 
     def is_spamming(
         self, guild_id: int, user_id: int, max_messages: int, window_seconds: int
@@ -90,16 +102,33 @@ class SlidingWindowRateLimiter:
         self._history[key] = timestamps
 
         if len(timestamps) > max_messages:
+            # Violations decay after a quiet period so a single bad minute does
+            # not permanently inflate future timeout durations.
+            if now - self._last_violation.get(key, 0.0) > self.VIOLATION_DECAY_SECONDS:
+                self._violations[key] = 0
             violations = self._violations.get(key, 0) + 1
             self._violations[key] = violations
+            self._last_violation[key] = now
+            self._prune(now)
             return True, violations
 
         return False, self._violations.get(key, 0)
+
+    def _prune(self, now: float):
+        """Drop state for users with no recent activity to keep memory bounded."""
+        if len(self._history) <= self.MAX_TRACKED_KEYS:
+            return
+        stale = [k for k, ts in self._history.items() if not ts or ts[-1] < now - 3600]
+        for k in stale:
+            self._history.pop(k, None)
+            self._violations.pop(k, None)
+            self._last_violation.pop(k, None)
 
     def reset(self, guild_id: int, user_id: int):
         key = (guild_id, user_id)
         self._history.pop(key, None)
         self._violations.pop(key, None)
+        self._last_violation.pop(key, None)
 
 
 async def get_next_case_id(guild_id: int) -> int:

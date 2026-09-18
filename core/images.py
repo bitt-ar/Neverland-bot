@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+import aiohttp
 import PIL
 from PIL import Image, ImageChops, ImageDraw
 
@@ -76,8 +77,33 @@ def validate_and_save_background(image_bytes: bytes, guild_id: int, user_id: int
         raise ValueError(f"Failed to process and save image: {e}")
 
 
+async def fetch_image_bytes(url: str, max_bytes: int = MAX_IMAGE_SIZE_BYTES) -> bytes | None:
+    """Non-blocking image download with a hard size cap.
+
+    Returns the image bytes on success, or None on any failure (bad URL,
+    non-200 status, oversized body, network error). Never raises.
+    """
+    if not url or not url.lower().startswith(("http://", "https://")):
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.content.read(max_bytes + 1)
+                if len(data) > max_bytes:
+                    return None
+                return data
+    except Exception:
+        return None
+
+
 def load_background_image(background_ref: str | None) -> Image.Image:
-    """Safely load background image. Prioritizes local file, falls back to bundled default."""
+    """Safely load background image. Prioritizes local file, falls back to bundled default.
+
+    Only local paths are accepted. Remote URLs were removed deliberately: fetching
+    arbitrary URLs stored in the database would turn the bot into an SSRF client.
+    """
     if background_ref:
         # Check if local path
         local_path = config.BASE_DIR / background_ref if not Path(background_ref).is_absolute() else Path(background_ref)
@@ -85,17 +111,6 @@ def load_background_image(background_ref: str | None) -> Image.Image:
             try:
                 img = Image.open(local_path)
                 return img.convert("RGBA")
-            except Exception:
-                pass
-
-        # Fallback for legacy external URLs if any
-        if background_ref.startswith("http://") or background_ref.startswith("https://"):
-            try:
-                import requests
-                resp = requests.get(background_ref, timeout=5)
-                if resp.status_code == 200:
-                    img = Image.open(BytesIO(resp.content))
-                    return img.convert("RGBA")
             except Exception:
                 pass
 

@@ -1309,12 +1309,51 @@ async def giveaways_create_handler(request: web.Request) -> web.Response:
 
     try:
         body = await request.json()
-        channel_id = int(body.get("channel_id"))
-        title = str(body.get("title", "Giveaway")).strip()
-        winners_count = int(body.get("winners_count", 1))
-        duration_seconds = int(body.get("duration_seconds", 3600))
+        try:
+            channel_id = int(body.get("channel_id"))
+            winners_count = int(body.get("winners_count", 1))
+            duration_seconds = int(body.get("duration_seconds", 3600))
+        except (TypeError, ValueError):
+            return web.json_response(
+                {
+                    "error": "validation_failed",
+                    "details": "channel_id, winners_count and duration_seconds must be integers.",
+                },
+                status=400,
+            )
+
+        title = str(body.get("title", "Giveaway")).strip() or "Giveaway"
         description = str(body.get("description", "")).strip()
         image_url = str(body.get("image_url", "")).strip()
+
+        if not 1 <= winners_count <= 50:
+            return web.json_response(
+                {"error": "validation_failed", "details": "winners_count must be between 1 and 50."},
+                status=400,
+            )
+        if not 30 <= duration_seconds <= 2592000:
+            return web.json_response(
+                {
+                    "error": "validation_failed",
+                    "details": "duration_seconds must be between 30 and 2592000 (30 days).",
+                },
+                status=400,
+            )
+        if len(title) > 200:
+            return web.json_response(
+                {"error": "validation_failed", "details": "title cannot exceed 200 characters."},
+                status=400,
+            )
+        if len(description) > 1000:
+            return web.json_response(
+                {"error": "validation_failed", "details": "description cannot exceed 1000 characters."},
+                status=400,
+            )
+        if image_url and not image_url.lower().startswith(("http://", "https://")):
+            return web.json_response(
+                {"error": "validation_failed", "details": "image_url must be an http(s) URL."},
+                status=400,
+            )
 
         required_role_ids = [int(r) for r in body.get("required_role_ids", []) if str(r).isdigit()]
         role_multipliers = {}
@@ -1341,7 +1380,7 @@ async def giveaways_create_handler(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", **result})
     except Exception as e:
         logger.exception("Error in giveaways_create_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"error": "giveaway_creation_failed"}, status=500)
 
 
 async def giveaways_reroll_handler(request: web.Request) -> web.Response:
@@ -1357,9 +1396,20 @@ async def giveaways_reroll_handler(request: web.Request) -> web.Response:
         if database.db is None:
             return web.json_response({"error": "database_unavailable"}, status=503)
 
-        doc = await database.db.giveaways.find_one({"message_id": str(message_id)})
+        doc = await database.db.giveaways.find_one(
+            {
+                "message_id": str(message_id),
+                "guild_id": {"$in": [guild.id, str(guild.id)]},
+            }
+        )
         if not doc:
             return web.json_response({"error": "giveaway_not_found"}, status=404)
+
+        if doc.get("status", "ended") == "active":
+            return web.json_response(
+                {"error": "giveaway_still_active", "details": "Wait for the giveaway to end before rerolling."},
+                status=409,
+            )
 
         entrants = doc.get("Entrants") or doc.get("entrants") or []
         if not entrants:

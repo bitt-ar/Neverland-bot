@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Save,
   Sparkles,
-  CheckCircle2,
   AlertCircle,
   Hash,
   Search,
@@ -88,7 +87,7 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
 
   const isGiveawayEnded = useCallback((g: GiveawayItem) => {
     if (g.concluded) return true;
-    if ((g as any).status === "ended") return true;
+    if (g.status === "ended") return true;
     if (g.concluded_at) return true;
     const winners = g.winners || g.Winners;
     if (Array.isArray(winners) && winners.length > 0) return true;
@@ -808,7 +807,7 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
                           <h4 className="font-semibold text-sm leading-tight">{pTitle}</h4>
                           <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 font-mono">
                             <Hash className="size-3" />
-                            {getChannelName(g.channel_id || (g as any).channel || (g as any).Channel)}
+                            {getChannelName(g.channel_id || g.channel || g.Channel)}
                           </span>
                         </div>
                         <Badge

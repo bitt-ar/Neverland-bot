@@ -41,10 +41,12 @@ async function proxyRequest(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
+  // Prefer non-spoofable sources first, then headers set by a trusted reverse
+  // proxy. x-forwarded-for is client-controlled and only a last resort.
   const clientIp =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
-    "127.0.0.1";
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
 
   const rateCheck = checkRateLimit(clientIp);
   if (!rateCheck.allowed) {

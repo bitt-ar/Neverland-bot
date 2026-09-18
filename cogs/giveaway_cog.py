@@ -17,6 +17,42 @@ from core import database
 logger = logging.getLogger(__name__)
 
 
+def weighted_sample_without_replacement(items, weights, count):
+    """Select up to `count` unique items via weighted random sampling.
+
+    Uses the Efraimidis–Spirakis A-ES algorithm (key = u^(1/w), keep the
+    `count` highest keys) which is unbiased for any positive weights.
+    Non-positive or invalid weights fall back to 1.0 so every entrant
+    keeps a chance to win.
+    """
+    if not items or count <= 0:
+        return []
+
+    weights_list = list(weights or [])
+    keyed = []
+    for i, item in enumerate(items):
+        try:
+            w = float(weights_list[i]) if i < len(weights_list) else 1.0
+        except (TypeError, ValueError):
+            w = 1.0
+        if w <= 0:
+            w = 1.0
+        keyed.append((random.random() ** (1.0 / w), item))
+
+    keyed.sort(key=lambda pair: pair[0], reverse=True)
+
+    winners = []
+    seen = set()
+    for _, item in keyed:
+        if item in seen:
+            continue
+        seen.add(item)
+        winners.append(item)
+        if len(winners) >= count:
+            break
+    return winners
+
+
 async def select_giveaway_winners(
     guild: Optional[discord.Guild],
     entrants: list[int],
@@ -297,8 +333,8 @@ async def conclude_giveaway_doc(bot: discord.Client, doc: dict):
 
 
 class Exit(discord.ui.View):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, timeout: Optional[float] = None):
+        super().__init__(timeout=timeout)
         self.value = None
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
@@ -310,40 +346,22 @@ class Exit(discord.ui.View):
         self.stop()
 
 
-class Leave(discord.ui.View):
-    def __init__(self, timeout=False):
-        super().__init__(timeout=timeout)
-        self.id = {}
-        self.timedout = {}
+class GiveawayLeaveView(discord.ui.View):
+    """Transient confirmation shown to users who click Enter while already entered.
 
-    @discord.ui.button(label="Leave Giveaway", style=discord.ButtonStyle.red)
-    async def Leavee(self, interaction: discord.Interaction, button: discord.Button):
-        if interaction.user.id in self.timedout:
-            self.id[str(interaction.user.id)] = 1
-            await interaction.response.edit_message(
-                content="You have successfully left the giveaway! ✅", view=None
+    The leave action itself is handled centrally in Giveaway.on_interaction via the
+    `giveaway_leave:{message_id}` custom id, so it keeps working across restarts.
+    """
+
+    def __init__(self, message_id: str):
+        super().__init__(timeout=120)
+        self.add_item(
+            discord.ui.Button(
+                label="Leave Giveaway",
+                style=discord.ButtonStyle.red,
+                custom_id=f"giveaway_leave:{message_id}",
             )
-        else:
-            await interaction.response.edit_message(
-                content="Timed out. Please try again ❌", view=None
-            )
-
-    async def waiting(self, user_id):
-        if user_id in self.timedout:
-            self.timedout[user_id] = 299
-            return
-        else:
-            self.timedout[user_id] = 299
-
-        while True:
-            if self.id.get(str(user_id)) == 1:
-                self.timedout.pop(user_id, None)
-                return True
-            if self.timedout.get(user_id, 0) <= 0:
-                self.timedout.pop(user_id, None)
-                return False
-            self.timedout[user_id] -= 1
-            await asyncio.sleep(1)
+        )
 
 
 class MyView(discord.ui.View):
@@ -365,7 +383,6 @@ class MyView(discord.ui.View):
 
         self.time = 0
         self.value = None
-        self.clicked_users: list[int] = []
         self.timer = None
         self.winners: list[str] = []
         self.pyTime = 0.0
@@ -376,7 +393,6 @@ class MyView(discord.ui.View):
         self.Description = ""
         self.member = str(author.mention)
         self.Link: Optional[str] = None
-        self.Leave = Leave()
         self.time_now = datetime.datetime.now().strftime("%A %d %b %Y %I:%M %p")
 
     def data(self, member, Titel, Winner, Time, Description, Link):
@@ -450,7 +466,7 @@ class MyView(discord.ui.View):
                 inline=False,
             )
 
-        participants_count = len(self.clicked_users)
+        participants_count = 0
         embed.add_field(
             name="Entries",
             value=str(participants_count),
@@ -464,94 +480,11 @@ class MyView(discord.ui.View):
 
     @discord.ui.button(label="Enter", style=discord.ButtonStyle.blurple, emoji="🎉", custom_id="giveaway_enter")
     async def menu(self, interaction: discord.Interaction, button: discord.Button):
-        user = interaction.user
-        user_id = user.id
-
-        # 1. Role requirements check
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if not member and interaction.guild:
-            member = interaction.guild.get_member(user_id)
-            if not member:
-                try:
-                    member = await interaction.guild.fetch_member(user_id)
-                except Exception:
-                    member = None
-
-        req_role_ids = [str(r) for r in (self.required_role_ids or [])]
-        if not req_role_ids and database.db is not None and self.message:
-            doc = await database.db.giveaways.find_one({"message_id": str(self.message.id)})
-            if doc:
-                req_role_ids = [str(r) for r in (doc.get("required_role_ids") or [])]
-
-        if req_role_ids and member:
-            is_admin = getattr(getattr(member, "guild_permissions", None), "administrator", False)
-            if not is_admin:
-                member_role_ids = {str(r.id) for r in getattr(member, "roles", [])}
-                has_req = any(str(rid) in member_role_ids for rid in req_role_ids)
-                if not has_req:
-                    req_mentions = ", ".join([f"<@&{rid}>" for rid in req_role_ids])
-                    await interaction.response.send_message(
-                        f"⛔ You do not have the required role(s) to enter this giveaway: {req_mentions}",
-                        ephemeral=True,
-                    )
-                    return
-
-        # 2. Already entered handling
-        if user_id in self.clicked_users:
-            self.Leave.id[str(user_id)] = 0
-            await interaction.response.send_message(
-                content="You have already entered this giveaway!",
-                ephemeral=True,
-                view=self.Leave,
-            )
-            await self.Leave.waiting(user_id)
-            if user_id in self.clicked_users and self.Leave.id.get(str(user_id)) == 1:
-                self.clicked_users.remove(user_id)
-                if database.db is not None and self.message:
-                    try:
-                        await database.db.giveaways.update_one(
-                            {"message_id": str(self.message.id)},
-                            {
-                                "$pull": {"entrants": user_id},
-                                "$set": {"Entries": len(self.clicked_users)},
-                            },
-                        )
-                    except Exception:
-                        pass
-                embed = self.embed()
-                if self.message:
-                    try:
-                        await self.message.edit(embed=embed)
-                    except Exception:
-                        pass
-            return
-
-        # 3. Add user to entrants
-        self.clicked_users.append(user_id)
-
-        if database.db is not None and self.message:
-            try:
-                await database.db.giveaways.update_one(
-                    {"message_id": str(self.message.id)},
-                    {
-                        "$addToSet": {"entrants": user_id},
-                        "$set": {"Entries": len(self.clicked_users)},
-                    },
-                )
-            except Exception as e:
-                logger.debug("Failed updating giveaway entrant in DB: %s", e)
-
-        embed = self.embed()
-        if self.message:
-            try:
-                await self.message.edit(embed=embed)
-            except Exception:
-                pass
-
-        await interaction.response.send_message(
-            "🎉 You have entered the giveaway!",
-            ephemeral=True,
-        )
+        # Intentionally empty: all enter/leave logic lives in Giveaway.on_interaction.
+        # Handling the click in both places caused duplicate responses and a
+        # read-modify-write race that could drop entrants; the central listener is
+        # also the only path that keeps working after a bot restart.
+        pass
 
     async def winner(self):
         self.timer = asyncio.create_task(asyncio.sleep(self.time))
@@ -575,18 +508,16 @@ class MyView(discord.ui.View):
                 "creator_id": self.author.id,
                 "title": self.Titel,
                 "winners_count": int(self.Winner),
-                "entrants": self.clicked_users,
+                "entrants": [],
                 "role_multipliers": self.role_multipliers,
             }
 
         await conclude_giveaway_doc(self.bot, doc)
         self.value = False
         self.stop()
-        self.Leave.stop()
 
     async def leave(self):
         self.value = False
-        self.Leave.stop()
         self.stop()
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item=None):
@@ -644,7 +575,6 @@ class Input(discord.ui.Modal, title="Create a Giveaway"):
             required_role_ids=self.required_role_ids,
             role_multipliers=self.role_multipliers,
         )
-        self.Exit = Exit()
         super().__init__(timeout=timeout)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -708,16 +638,17 @@ class Input(discord.ui.Modal, title="Create a Giveaway"):
                 }
             )
 
-        Exit = self.Exit
-        Exit.timeout = view.time
+        # Timeout must be passed at construction time — assigning .timeout after
+        # init does not re-arm discord.py's internal timer.
+        exit_view = Exit(timeout=max(60, view.time))
         await interaction.followup.send(
-            f"✅ Giveaway created! ID: `{message.id}`", ephemeral=True, view=Exit
+            f"✅ Giveaway created! ID: `{message.id}`", ephemeral=True, view=exit_view
         )
 
         winner_task = asyncio.create_task(view.winner())
 
-        await Exit.wait()
-        if Exit.value is True:
+        await exit_view.wait()
+        if exit_view.value is True:
             if interaction.user.id == self.ctx.author.id:
                 channel = self.ctx.bot.get_channel(message.channel.id)
                 if channel:
@@ -729,7 +660,7 @@ class Input(discord.ui.Modal, title="Create a Giveaway"):
                 view.value = False
                 view.timer.cancel()
                 await view.leave()
-                Exit.stop()
+                exit_view.stop()
                 if database.db is not None:
                     await database.db.giveaways.update_one(
                         {"message_id": str(message.id)},
@@ -794,7 +725,12 @@ class Giveaway(commands.Cog):
         if interaction.type != discord.InteractionType.component:
             return
         data = interaction.data or {}
-        if data.get("custom_id") != "giveaway_enter":
+        custom_id = data.get("custom_id", "")
+        if custom_id.startswith("giveaway_leave:"):
+            if not interaction.response.is_done():
+                await self._handle_leave(interaction, custom_id.split(":", 1)[1])
+            return
+        if custom_id != "giveaway_enter":
             return
         if interaction.response.is_done():
             return
@@ -843,21 +779,34 @@ class Giveaway(commands.Cog):
         entrants = [int(u) for u in (doc.get("entrants") or doc.get("Entrants") or [])]
         if user_id in entrants:
             await interaction.response.send_message(
-                "You have already entered this giveaway!", ephemeral=True
+                "You have already entered this giveaway!",
+                ephemeral=True,
+                view=GiveawayLeaveView(msg_id),
             )
             return
 
-        entrants.append(user_id)
-
-        await database.db.giveaways.update_one(
-            {"message_id": msg_id},
-            {
-                "$set": {
-                    "entrants": entrants,
-                    "Entries": len(entrants),
-                }
-            },
+        # Atomic entrant insert. Never write back a client-side snapshot of the
+        # list: two concurrent clicks would overwrite each other's entries.
+        updated = await database.db.giveaways.find_one_and_update(
+            {"message_id": msg_id, "entrants": {"$ne": user_id}},
+            {"$addToSet": {"entrants": user_id}},
+            return_document=ReturnDocument.AFTER,
         )
+        if updated is None:
+            # Lost a race (entered elsewhere or giveaway just ended) — re-read state.
+            fresh = await database.db.giveaways.find_one({"message_id": msg_id})
+            if fresh and pyTime.time() < fresh.get("end_time", 0):
+                await interaction.response.send_message(
+                    "You have already entered this giveaway!",
+                    ephemeral=True,
+                    view=GiveawayLeaveView(msg_id),
+                )
+            else:
+                await interaction.response.send_message(
+                    "⛔ This giveaway has already ended.", ephemeral=True
+                )
+            return
+        entrants = [int(u) for u in (updated.get("entrants") or [])]
 
         # Update message embed
         try:
@@ -885,6 +834,60 @@ class Giveaway(commands.Cog):
             ephemeral=True,
         )
 
+    async def _handle_leave(self, interaction: discord.Interaction, msg_id: str):
+        """Removes the user from an active giveaway (button: giveaway_leave:{msg_id})."""
+        if not interaction.guild or not interaction.message:
+            return
+        if database.db is None:
+            await interaction.response.send_message("Database unavailable.", ephemeral=True)
+            return
+
+        doc = await database.db.giveaways.find_one({"message_id": msg_id})
+        if not doc or doc.get("status") != "active":
+            await interaction.response.send_message(
+                "This giveaway is no longer active.", ephemeral=True
+            )
+            return
+
+        user_id = interaction.user.id
+        updated = await database.db.giveaways.find_one_and_update(
+            {"message_id": msg_id, "entrants": user_id},
+            {"$pull": {"entrants": user_id}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not updated:
+            await interaction.response.send_message(
+                "You are not entered in this giveaway.", ephemeral=True
+            )
+            return
+
+        count = len(updated.get("entrants") or [])
+
+        # Update message embed
+        try:
+            embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if embed:
+                new_fields = []
+                for f in embed.fields:
+                    if f.name in ("Entries", "👥 Entries"):
+                        new_fields.append({
+                            "name": "Entries",
+                            "value": str(count),
+                            "inline": False,
+                        })
+                    else:
+                        new_fields.append({"name": f.name, "value": f.value, "inline": f.inline})
+                embed.clear_fields()
+                for f in new_fields:
+                    embed.add_field(name=f["name"], value=f["value"], inline=f["inline"])
+                await interaction.message.edit(embed=embed)
+        except Exception:
+            pass
+
+        await interaction.response.send_message(
+            "👋 You have left the giveaway.", ephemeral=True
+        )
+
     @app_commands.command(
         name="giveaway",
         description="Create an interactive giveaway with optional role requirements and bonus entries",
@@ -910,7 +913,7 @@ class Giveaway(commands.Cog):
             )
             return
 
-        if image is not None and not image.content_type.startswith("image"):
+        if image is not None and (not image.content_type or not image.content_type.startswith("image")):
             await interaction.response.send_message(
                 "Please provide a valid image attachment.", ephemeral=True
             )
@@ -1011,10 +1014,22 @@ class Giveaway(commands.Cog):
             await interaction.response.send_message("Database unavailable.", ephemeral=True)
             return
 
-        doc = await database.db.giveaways.find_one({"message_id": giveaway_id})
+        doc = await database.db.giveaways.find_one(
+            {
+                "message_id": giveaway_id,
+                "guild_id": {"$in": [interaction.guild_id, str(interaction.guild_id)]},
+            }
+        )
         if not doc:
             await interaction.response.send_message(
                 "Could not find a giveaway message with that ID.", ephemeral=True
+            )
+            return
+
+        if doc.get("status", "ended") == "active":
+            await interaction.response.send_message(
+                "This giveaway is still running — wait for it to end before rerolling.",
+                ephemeral=True,
             )
             return
 
@@ -1023,7 +1038,6 @@ class Giveaway(commands.Cog):
             await interaction.response.send_message("No entrants found for this giveaway.", ephemeral=True)
             return
 
-        count = number_of_winners or int(doc.get("Winner", 1))
         count = number_of_winners or int(doc.get("Winner") or doc.get("winners_count") or 1)
         role_multipliers = doc.get("role_multipliers") or {}
         new_winners, _ = await select_giveaway_winners(interaction.guild, entrants, role_multipliers, count)
@@ -1039,7 +1053,10 @@ class Giveaway(commands.Cog):
         )
 
         await database.db.giveaways.update_one(
-            {"message_id": giveaway_id},
+            {
+                "message_id": giveaway_id,
+                "guild_id": {"$in": [interaction.guild_id, str(interaction.guild_id)]},
+            },
             {"$set": {"Winners": [str(w) for w in new_winners]}}
         )
 
@@ -1080,10 +1097,22 @@ async def reroll_context_callback(interaction: discord.Interaction, message: dis
         await interaction.response.send_message("Database is unavailable.", ephemeral=True)
         return
 
-    doc = await database.db.giveaways.find_one({"message_id": str(message.id)})
+    doc = await database.db.giveaways.find_one(
+        {
+            "message_id": str(message.id),
+            "guild_id": {"$in": [interaction.guild_id, str(interaction.guild_id)]},
+        }
+    )
     if not doc:
         await interaction.response.send_message(
             "This message is not a completed giveaway message.", ephemeral=True
+        )
+        return
+
+    if doc.get("status", "ended") == "active":
+        await interaction.response.send_message(
+            "This giveaway is still running — wait for it to end before rerolling.",
+            ephemeral=True,
         )
         return
 
@@ -1107,7 +1136,10 @@ async def reroll_context_callback(interaction: discord.Interaction, message: dis
     )
 
     await database.db.giveaways.update_one(
-        {"message_id": str(message.id)},
+        {
+            "message_id": str(message.id),
+            "guild_id": {"$in": [interaction.guild_id, str(interaction.guild_id)]},
+        },
         {"$set": {"Winners": [str(w) for w in new_winners]}}
     )
 

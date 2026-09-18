@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import datetime as weekly
 
 import discord
@@ -11,6 +11,7 @@ from core import database
 class Activity(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # {member_id: (join_moment_utc, week_start_str)}
         self.voice_start_times = {}
         self.weekly_reset.start()
 
@@ -19,15 +20,15 @@ class Activity(commands.Cog):
 
     # ---------- Weekly activity stats ----------
 
-    def _get_week_start(self):
-        """Calculate week start date (Monday-based)"""
-        today = datetime.now()
-        return (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
+    def _get_week_start(self, moment: datetime | None = None):
+        """Calculate week start date (Monday-based, UTC)."""
+        moment = moment or datetime.now(timezone.utc)
+        return (moment - timedelta(days=moment.weekday())).strftime("%Y-%m-%d")
 
     @tasks.loop(time=weekly.time(hour=0, minute=0))
     async def weekly_reset(self):
         """Delete previous weeks' stats every Monday 00:00"""
-        today = datetime.now()
+        today = datetime.now(timezone.utc)
         if today.weekday() == 0:  # Monday
             try:
                 current_week = self._get_week_start()
@@ -41,16 +42,22 @@ class Activity(commands.Cog):
         """Track voice time for weekly stats"""
         if member.bot or member.guild is None:
             return
-        current_week = self._get_week_start()
         if before.channel is None and after.channel is not None:
-            self.voice_start_times[member.id] = datetime.now()
+            # Remember the join moment and its week bucket so session time is
+            # credited to the week the session STARTED in (sessions spanning
+            # Monday 00:00 UTC are not rolled into the new week).
+            self.voice_start_times[member.id] = (
+                datetime.now(timezone.utc),
+                self._get_week_start(),
+            )
         elif before.channel and after.channel is None:
             if member.id in self.voice_start_times:
                 try:
-                    duration = datetime.now() - self.voice_start_times[member.id]
-                    await self._upsert_voice(member.id, member.guild.id, duration.total_seconds(), current_week)
+                    started_at, week_start = self.voice_start_times[member.id]
+                    duration = (datetime.now(timezone.utc) - started_at).total_seconds()
+                    await self._upsert_voice(member.id, member.guild.id, duration, week_start)
                 finally:
-                    del self.voice_start_times[member.id]
+                    self.voice_start_times.pop(member.id, None)
 
     @commands.Cog.listener()
     async def on_message(self, message):

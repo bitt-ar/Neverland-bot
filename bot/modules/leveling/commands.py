@@ -2,13 +2,12 @@ from io import BytesIO
 import logging
 
 import discord
-import requests
 from discord import app_commands
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 from core import config, database
-from core.images import circle, load_background_image, validate_and_save_background
+from core.images import circle, fetch_image_bytes, load_background_image, validate_and_save_background
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ def render_rank_card(
     xp_last_level,
     xp_next_level,
     background_url,
-    pfp_url,
+    pfp_bytes: bytes | None,
     disname,
     joined,
     rank,
@@ -100,10 +99,13 @@ def render_rank_card(
     solid_base = Image.new("RGBA", (1000, 512), (20, 20, 25, 255))
     background = Image.alpha_composite(solid_base, background)
 
-    try:
-        response = requests.get(pfp_url, timeout=10)
-        pfp = Image.open(BytesIO(response.content))
-    except Exception:
+    pfp = None
+    if pfp_bytes:
+        try:
+            pfp = Image.open(BytesIO(pfp_bytes))
+        except Exception:
+            pfp = None
+    if pfp is None:
         pfp = Image.new("RGBA", (213, 213), (70, 70, 80, 255))
     pfp = circle(pfp, (213, 213))
 
@@ -267,12 +269,13 @@ class LevelingCommandsCog(commands.Cog):
         last_level_xp = (level / 0.09) ** 2
         joined = member.joined_at.strftime("%a %d %b %Y") if member.joined_at else "unknown"
         try:
+            pfp_bytes = await fetch_image_bytes(member.display_avatar.url)
             card = render_rank_card(
                 xp=int(current_xp),
                 xp_last_level=int(last_level_xp),
                 xp_next_level=int(next_level_xp),
                 background_url=doc.get("background") or DEFAULT_BACKGROUND,
-                pfp_url=member.display_avatar.url,
+                pfp_bytes=pfp_bytes,
                 disname=str(member),
                 joined=joined,
                 rank=rank,
