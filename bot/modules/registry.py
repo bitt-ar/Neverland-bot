@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from bot.modules.base import Module
+from bot.modules.custom_commands.module import CustomCommandsModule
 from bot.modules.leveling.module import LevelingModule
 from bot.modules.moderation.module import ModerationModule
 from bot.modules.reaction_roles.module import ReactionRolesModule
@@ -84,6 +85,16 @@ class Registry:
                     {"guild_id": {"$in": [guild_id, str(guild_id)]}}, limit=1
                 )
                 return count > 0
+            elif name == "custom_commands":
+                count = await database.db.custom_commands.count_documents(
+                    {"guild_id": {"$in": [guild_id, str(guild_id)]}}, limit=1
+                )
+                if count > 0:
+                    return True
+                count_dd = await database.db.custom_dropdowns.count_documents(
+                    {"guild_id": {"$in": [guild_id, str(guild_id)]}}, limit=1
+                )
+                return count_dd > 0
         except Exception as e:
             logger.warning(
                 "Error checking legacy enabled state for (%s, %s): %s", guild_id, name, e
@@ -481,6 +492,7 @@ def build_registry(bot) -> Registry:
         TempVoiceModule(bot),
         TicketsModule(bot),
         ModerationModule(bot),
+        CustomCommandsModule(bot),
     ]
     return Registry(bot, modules)
 

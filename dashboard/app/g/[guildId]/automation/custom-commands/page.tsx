@@ -1,0 +1,29 @@
+import { CustomCommandsClient } from "./custom-commands-client";
+import { checkGuildAccess } from "../../guild-access";
+
+export const dynamic = "force-dynamic";
+
+export default async function CustomCommandsPage({
+  params,
+}: {
+  params: Promise<{ guildId: string }>;
+}) {
+  const { guildId } = await params;
+
+  const guard = await checkGuildAccess(guildId);
+  if (guard) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Custom Commands & Menus</h1>
+          <p className="text-sm text-muted-foreground">
+            Create custom commands and interactive workflow dropdown select menus.
+          </p>
+        </div>
+        {guard}
+      </div>
+    );
+  }
+
+  return <CustomCommandsClient guildId={guildId} />;
+}

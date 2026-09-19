@@ -20,6 +20,8 @@ import {
   MessageSquare,
   Ban,
   Slash,
+  Code2,
+  CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,6 +29,7 @@ import {
   ModerationConfig,
   ModerationConfigResponse,
   ModerationCase,
+  RegexRuleConfig,
   DEFAULT_MODERATION_CONFIG,
   MODERATION_COMMANDS,
 } from "@/lib/modules/moderation";
@@ -45,6 +48,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SelectSearchable } from "@/components/ui/select-searchable";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface ModerationClientProps {
   guildId: string;
@@ -71,6 +81,22 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
   const [antiMention, setAntiMention] = useState(DEFAULT_MODERATION_CONFIG.anti_mention);
   const [badWords, setBadWords] = useState(DEFAULT_MODERATION_CONFIG.bad_words);
   const [newBadWord, setNewBadWord] = useState("");
+
+  // Custom Regex AutoMod states
+  const [customRegexPatterns, setCustomRegexPatterns] = useState<RegexRuleConfig[]>([]);
+  const [newRegexName, setNewRegexName] = useState("");
+  const [newRegexPattern, setNewRegexPattern] = useState("");
+  const [newRegexAction, setNewRegexAction] = useState<"delete" | "warn" | "timeout" | "kick" | "ban">("delete");
+  const [newRegexTimeout, setNewRegexTimeout] = useState(5);
+  const [testRegexInput, setTestRegexInput] = useState("");
+  const [testRegexResult, setTestRegexResult] = useState<{
+    testing: boolean;
+    valid?: boolean;
+    error?: string;
+    matches?: boolean;
+    match?: string;
+    span?: number[];
+  } | null>(null);
 
   // Baseline config
   const [savedConfig, setSavedConfig] = useState<ModerationConfig>(DEFAULT_MODERATION_CONFIG);
@@ -116,6 +142,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
         anti_invite: { ...DEFAULT_MODERATION_CONFIG.anti_invite, ...(configData.config?.anti_invite || {}) },
         anti_mention: { ...DEFAULT_MODERATION_CONFIG.anti_mention, ...(configData.config?.anti_mention || {}) },
         bad_words: { ...DEFAULT_MODERATION_CONFIG.bad_words, ...(configData.config?.bad_words || {}) },
+        custom_regex_patterns: configData.config?.custom_regex_patterns || [],
       };
 
       setSavedConfig(cfg);
@@ -126,6 +153,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
       setAntiInvite(cfg.anti_invite);
       setAntiMention(cfg.anti_mention);
       setBadWords(cfg.bad_words);
+      setCustomRegexPatterns(cfg.custom_regex_patterns || []);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load moderation configuration";
       setLoadError(msg);
@@ -148,6 +176,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
     if (JSON.stringify(antiInvite) !== JSON.stringify(savedConfig.anti_invite)) return true;
     if (JSON.stringify(antiMention) !== JSON.stringify(savedConfig.anti_mention)) return true;
     if (JSON.stringify(badWords) !== JSON.stringify(savedConfig.bad_words)) return true;
+    if (JSON.stringify(customRegexPatterns) !== JSON.stringify(savedConfig.custom_regex_patterns || [])) return true;
     return false;
   }, [
     modLogsChannelId,
@@ -157,6 +186,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
     antiInvite,
     antiMention,
     badWords,
+    customRegexPatterns,
     savedConfig,
   ]);
 
@@ -170,6 +200,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
     setAntiInvite(savedConfig.anti_invite);
     setAntiMention(savedConfig.anti_mention);
     setBadWords(savedConfig.bad_words);
+    setCustomRegexPatterns(savedConfig.custom_regex_patterns || []);
     toast.info("Unsaved changes discarded");
   };
 
@@ -207,6 +238,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
       anti_invite: antiInvite,
       anti_mention: antiMention,
       bad_words: badWords,
+      custom_regex_patterns: customRegexPatterns,
     };
 
     try {
@@ -278,6 +310,93 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
       ...prev,
       words: prev.words.filter((w) => w !== wordToRemove),
     }));
+  };
+
+  // Custom Regex Handlers
+  const handleAddRegexRule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newRegexName.trim();
+    const pattern = newRegexPattern.trim();
+    if (!name || !pattern) {
+      toast.error("Both rule name and regex pattern are required.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/internal/guilds/${guildId}/moderation/test-regex`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pattern, test_string: "sample" }),
+      });
+      const data = await res.json();
+      if (!data.valid) {
+        toast.error(`Invalid regex syntax: ${data.error}`);
+        return;
+      }
+    } catch {
+      // Continue if network test fails
+    }
+
+    const newRule: RegexRuleConfig = {
+      id: `rx_${Date.now()}`,
+      name,
+      pattern,
+      action: newRegexAction,
+      timeout_minutes: newRegexTimeout,
+      enabled: true,
+    };
+
+    setCustomRegexPatterns((prev) => [...prev, newRule]);
+    setNewRegexName("");
+    setNewRegexPattern("");
+    toast.success(`Regex rule "${name}" added. Click Save Changes to apply.`);
+  };
+
+  const handleRemoveRegexRule = (ruleId?: string, patternStr?: string) => {
+    setCustomRegexPatterns((prev) =>
+      prev.filter((r) => (ruleId ? r.id !== ruleId : r.pattern !== patternStr))
+    );
+  };
+
+  const handleToggleRegexRule = (idx: number) => {
+    setCustomRegexPatterns((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], enabled: !copy[idx].enabled };
+      return copy;
+    });
+  };
+
+  const handleRunRegexTest = async (testPattern?: string) => {
+    const patternToTest = testPattern || newRegexPattern || customRegexPatterns[0]?.pattern;
+    if (!patternToTest) {
+      toast.error("Please enter a regex pattern to test.");
+      return;
+    }
+    if (!testRegexInput) {
+      toast.error("Please enter a test message to evaluate.");
+      return;
+    }
+
+    setTestRegexResult({ testing: true });
+    try {
+      const res = await fetch(`/api/internal/guilds/${guildId}/moderation/test-regex`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pattern: patternToTest, test_string: testRegexInput }),
+      });
+      const data = await res.json();
+      setTestRegexResult({
+        testing: false,
+        valid: data.valid,
+        error: data.error,
+        matches: data.matches,
+        match: data.match,
+        span: data.span,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Test failed";
+      setTestRegexResult({ testing: false, valid: false, error: msg });
+    }
   };
 
   // Delete Case
@@ -825,6 +944,227 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
                     ))
                   )}
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Custom Regex Rules & Live Tester (راكس) */}
+          <Card className="border border-border/80 shadow-xs lg:col-span-2">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Code2 className="size-4 text-emerald-500" />
+                  Dynamic Regex Filter & Live Tester (راكس)
+                </CardTitle>
+                <Badge variant="outline" className="text-xs">
+                  {customRegexPatterns.filter((r) => r.enabled).length} Active Rule(s)
+                </Badge>
+              </div>
+              <CardDescription>
+                Define custom regular expression rules with automated moderation actions (delete, warn, mute, kick, ban). Test patterns in real-time against sample messages.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Add New Regex Rule Form */}
+              <form onSubmit={handleAddRegexRule} className="p-4 border rounded-lg bg-muted/20 space-y-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Add New Regex Rule
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div className="md:col-span-4 space-y-1">
+                    <Label className="text-xs">Rule Name *</Label>
+                    <Input
+                      placeholder="e.g. Block Telegram Links"
+                      value={newRegexName}
+                      onChange={(e) => setNewRegexName(e.target.value)}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="md:col-span-5 space-y-1">
+                    <Label className="text-xs">Regex Pattern *</Label>
+                    <Input
+                      placeholder="e.g. https?://(?:www\.)?t\.me/[a-zA-Z0-9_]+"
+                      value={newRegexPattern}
+                      onChange={(e) => setNewRegexPattern(e.target.value)}
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div className="md:col-span-3 space-y-1">
+                    <Label className="text-xs">Action</Label>
+                    <Select
+                      value={newRegexAction}
+                      onValueChange={(val: string | null) => {
+                        if (val) setNewRegexAction(val as "delete" | "warn" | "timeout" | "kick" | "ban");
+                      }}
+                    >
+                      <SelectTrigger className="text-xs h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="delete">🗑️ Delete</SelectItem>
+                        <SelectItem value="warn">⚠️ Warn</SelectItem>
+                        <SelectItem value="timeout">⏱️ Timeout</SelectItem>
+                        <SelectItem value="kick">👢 Kick</SelectItem>
+                        <SelectItem value="ban">🔨 Ban</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {newRegexAction === "timeout" && (
+                  <div className="flex items-center gap-2 max-w-xs pt-1">
+                    <Label className="text-xs shrink-0">Timeout Duration (Minutes):</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={newRegexTimeout}
+                      onChange={(e) => setNewRegexTimeout(Number(e.target.value) || 5)}
+                      className="text-xs h-8"
+                    />
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" size="sm">
+                    <Plus className="size-3.5 mr-1" />
+                    Add Rule
+                  </Button>
+                </div>
+              </form>
+
+              {/* Active Rules List */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Configured Regex Rules ({customRegexPatterns.length})</Label>
+                {customRegexPatterns.length === 0 ? (
+                  <div className="p-4 border rounded-lg text-center text-xs text-muted-foreground italic bg-muted/10">
+                    No custom regex rules defined. Add one above to start filtering messages with regex patterns.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {customRegexPatterns.map((rule, idx) => (
+                      <div
+                        key={rule.id || idx}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-card"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm">{rule.name}</span>
+                            <Badge variant="outline" className="text-[11px] capitalize">
+                              {rule.action} {rule.action === "timeout" ? `(${rule.timeout_minutes}m)` : ""}
+                            </Badge>
+                          </div>
+                          <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
+                            {rule.pattern}
+                          </code>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => {
+                              setNewRegexPattern(rule.pattern);
+                              handleRunRegexTest(rule.pattern);
+                            }}
+                          >
+                            Test
+                          </Button>
+                          <Switch
+                            checked={rule.enabled}
+                            onCheckedChange={() => handleToggleRegexRule(idx)}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive"
+                            onClick={() => handleRemoveRegexRule(rule.id, rule.pattern)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Real-time Regex Tester Simulator */}
+              <div className="p-4 border rounded-lg bg-muted/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <CheckCircle className="size-3.5 text-primary" />
+                    Live Regex Tester Simulator
+                  </h4>
+                  <span className="text-[11px] text-muted-foreground">
+                    Instantly validates syntax and simulates detection on test text
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div className="md:col-span-9">
+                    <Input
+                      placeholder="Type a sample message to test against regex patterns..."
+                      value={testRegexInput}
+                      onChange={(e) => setTestRegexInput(e.target.value)}
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full text-xs"
+                      onClick={() => handleRunRegexTest()}
+                      disabled={testRegexResult?.testing}
+                    >
+                      {testRegexResult?.testing ? (
+                        <RefreshCw className="size-3 mr-1 animate-spin" />
+                      ) : (
+                        <Code2 className="size-3 mr-1" />
+                      )}
+                      Test Match
+                    </Button>
+                  </div>
+                </div>
+
+                {testRegexResult && !testRegexResult.testing && (
+                  <div
+                    className={`p-3 rounded-md text-xs border ${
+                      !testRegexResult.valid
+                        ? "bg-destructive/10 border-destructive/30 text-destructive"
+                        : testRegexResult.matches
+                        ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400"
+                        : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                    }`}
+                  >
+                    {!testRegexResult.valid ? (
+                      <div className="font-semibold">
+                        ❌ Invalid Regex: {testRegexResult.error}
+                      </div>
+                    ) : testRegexResult.matches ? (
+                      <div className="space-y-1">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          ⚠️ Match Triggered! (Would be blocked by AutoMod)
+                        </div>
+                        <div>
+                          Matched snippet:{" "}
+                          <code className="bg-background/80 px-1 py-0.5 rounded font-mono font-bold">
+                            &quot;{testRegexResult.match}&quot;
+                          </code>{" "}
+                          at character range [{testRegexResult.span?.join(", ")}]
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="font-semibold flex items-center gap-1.5">
+                        ✅ No violation: Message passed the regex filter cleanly.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

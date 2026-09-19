@@ -76,6 +76,62 @@ def contains_bad_word(content: str, bad_words: list[str]) -> tuple[bool, Optiona
     return False, None
 
 
+def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
+    """Validates regex pattern syntax and checks safety against catastrophic backtracking."""
+    if not pattern or not isinstance(pattern, str):
+        return False, "Pattern cannot be empty."
+
+    cleaned = pattern.strip()
+    if len(cleaned) > 250:
+        return False, "Pattern exceeds maximum allowed length (250 characters)."
+
+    try:
+        compiled = re.compile(cleaned, re.IGNORECASE)
+    except re.error as e:
+        return False, f"Invalid regex syntax: {e}"
+
+    # Basic ReDoS safety check: test against a moderate test string
+    test_str = "a" * 50 + " " + "b" * 50
+    try:
+        compiled.search(test_str)
+    except Exception as e:
+        return False, f"Pattern execution error: {e}"
+
+    return True, ""
+
+
+def check_regex_violations(content: str, rules: list[dict]) -> tuple[bool, Optional[dict], Optional[str]]:
+    """Evaluates message content against a list of custom regex rules.
+    Returns (has_violation, matched_rule, matched_snippet).
+    """
+    if not content or not rules:
+        return False, None, None
+
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if not rule.get("enabled", True):
+            continue
+
+        pattern_str = rule.get("pattern")
+        if not pattern_str or not isinstance(pattern_str, str):
+            continue
+
+        valid, _ = validate_regex_pattern(pattern_str)
+        if not valid:
+            continue
+
+        try:
+            match = re.search(pattern_str, content, re.IGNORECASE)
+            if match:
+                matched_snippet = match.group(0)
+                return True, rule, matched_snippet
+        except Exception as e:
+            logger.warning("Error evaluating regex rule '%s': %s", rule.get("name"), e)
+
+    return False, None, None
+
+
 class SlidingWindowRateLimiter:
     """Sliding-window in-memory message rate limiter for anti-spam."""
 

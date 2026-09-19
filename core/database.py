@@ -32,6 +32,9 @@ async def init():
     await db.giveaways_config.create_index([("guild_id", ASCENDING)], unique=True)
     await db.moderation_cases.create_index([("guild_id", ASCENDING), ("case_id", ASCENDING)], unique=True)
     await db.moderation_cases.create_index([("guild_id", ASCENDING), ("user_id", ASCENDING)])
+    await db.custom_commands.create_index([("guild_id", ASCENDING), ("name", ASCENDING)])
+    await db.custom_dropdowns.create_index([("guild_id", ASCENDING), ("id", ASCENDING)])
+    await db.custom_dropdowns.create_index([("message_id", ASCENDING)])
 
 
 async def close():

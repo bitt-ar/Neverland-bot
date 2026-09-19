@@ -6,6 +6,7 @@ from discord.ext import commands
 from bot.modules.moderation.helpers import (
     DISCORD_INVITE_REGEX,
     SlidingWindowRateLimiter,
+    check_regex_violations,
     contains_bad_word,
     log_moderation_action,
 )
@@ -190,5 +191,52 @@ class AutoModEngineCog(commands.Cog):
                     target=member,
                     reason=f"Prohibited word detected: ||{matched}||",
                     extra_details=f"Action: {action}",
+                )
+                return
+
+        # =====================================================================
+        # 5. CUSTOM REGEX RULES FILTER
+        # =====================================================================
+        custom_regex_rules = cfg.get("custom_regex_patterns") or []
+        if custom_regex_rules and isinstance(custom_regex_rules, list):
+            has_violation, matched_rule, match_snippet = check_regex_violations(content, custom_regex_rules)
+            if has_violation and matched_rule:
+                rule_name = matched_rule.get("name") or "Custom Regex Rule"
+                action = matched_rule.get("action", "delete").lower()
+                timeout_mins = int(matched_rule.get("timeout_minutes", 5) or 5)
+
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+
+                if action == "timeout":
+                    try:
+                        await member.timeout(datetime.timedelta(minutes=timeout_mins), reason=f"AutoMod: {rule_name}")
+                    except Exception:
+                        pass
+                elif action == "kick":
+                    try:
+                        await member.kick(reason=f"AutoMod: {rule_name}")
+                    except Exception:
+                        pass
+                elif action == "ban":
+                    try:
+                        await member.ban(reason=f"AutoMod: {rule_name}", delete_message_days=0)
+                    except Exception:
+                        pass
+
+                await message.channel.send(
+                    f"🛡️ {member.mention} Your message violated server rule: **{rule_name}**.",
+                    delete_after=8,
+                )
+                await log_moderation_action(
+                    bot=self.bot,
+                    guild=guild,
+                    action="automod",
+                    moderator="AutoMod",
+                    target=member,
+                    reason=f"Regex filter rule triggered: {rule_name}",
+                    extra_details=f"Pattern: `{matched_rule.get('pattern')}` | Snippet: `{match_snippet[:50]}` | Action: {action}",
                 )
                 return

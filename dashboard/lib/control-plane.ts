@@ -307,3 +307,73 @@ export async function getHealth(): Promise<HealthResponse> {
     clearTimeout(timeoutId);
   }
 }
+
+export interface WorkflowAction {
+  type: string;
+  channel_id?: string | null;
+  role_id?: string | null;
+  content?: string | null;
+  embed?: {
+    title?: string;
+    description?: string;
+    color?: string;
+    footer?: string;
+    thumbnail?: string;
+    image?: string;
+  } | null;
+  ephemeral?: boolean;
+}
+
+export interface CommandDefinition {
+  id: string;
+  guild_id?: string;
+  name: string;
+  aliases?: string[];
+  description?: string;
+  trigger_type: "prefix" | "exact" | "contains";
+  cooldown_seconds?: number;
+  allowed_roles?: string[];
+  allowed_channels?: string[];
+  enabled?: boolean;
+  actions: WorkflowAction[];
+  created_at?: string;
+}
+
+export interface DropdownOption {
+  id: string;
+  label: string;
+  value: string;
+  description?: string | null;
+  emoji?: string | null;
+  actions: WorkflowAction[];
+}
+
+export interface DropdownDefinition {
+  id: string;
+  guild_id?: string;
+  title: string;
+  placeholder?: string;
+  min_values?: number;
+  max_values?: number;
+  message_id?: string | null;
+  channel_id?: string | null;
+  panel_content?: string | null;
+  panel_embed?: {
+    title?: string;
+    description?: string;
+    color?: string;
+    footer?: string;
+  } | null;
+  options: DropdownOption[];
+  enabled?: boolean;
+  created_at?: string;
+}
+
+export async function getCustomCommands(guildId: string): Promise<CommandDefinition[]> {
+  return fetchControlPlane<CommandDefinition[]>(`/guilds/${guildId}/custom-commands`);
+}
+
+export async function getCustomDropdowns(guildId: string): Promise<DropdownDefinition[]> {
+  return fetchControlPlane<DropdownDefinition[]>(`/guilds/${guildId}/custom-dropdowns`);
+}
+

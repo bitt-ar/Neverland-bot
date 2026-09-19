@@ -36,7 +36,6 @@ export const dynamic = "force-dynamic";
 const UNBUILT_MODULES = [
   { name: "logging", label: "Logging", desc: "Channel & role audit trail" },
   { name: "automod", label: "AutoMod", desc: "Filter spam, invites & links" },
-  { name: "custom_commands", label: "Custom Commands", desc: "Server macros & triggers" },
 ];
 
 export default async function OverviewPage() {

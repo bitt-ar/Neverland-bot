@@ -203,6 +203,12 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
             icon: UserPlus,
             isActive: subPath.startsWith("/automation/welcome"),
           },
+          {
+            title: "Custom Commands & Menus",
+            href: guildHref("automation/custom-commands"),
+            icon: Terminal,
+            isActive: subPath.startsWith("/automation/custom-commands"),
+          },
         ],
       },
       {

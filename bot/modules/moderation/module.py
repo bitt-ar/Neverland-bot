@@ -31,6 +31,15 @@ class BadWordsConfig(BaseModel):
     words: list[str] = Field(default_factory=list)
 
 
+class RegexRuleConfig(BaseModel):
+    id: str = ""
+    name: str = ""
+    pattern: str = ""
+    action: str = "delete"  # "delete" | "warn" | "timeout" | "kick" | "ban"
+    timeout_minutes: int = Field(default=5, ge=1, le=1440)
+    enabled: bool = True
+
+
 class ModerationConfig(BaseModel):
     mod_logs_channel_id: Optional[SnowflakeId] = None
     disabled_commands: list[str] = Field(default_factory=list)
@@ -39,6 +48,7 @@ class ModerationConfig(BaseModel):
     anti_invite: AntiInviteConfig = Field(default_factory=AntiInviteConfig)
     anti_mention: AntiMentionConfig = Field(default_factory=AntiMentionConfig)
     bad_words: BadWordsConfig = Field(default_factory=BadWordsConfig)
+    custom_regex_patterns: list[RegexRuleConfig] = Field(default_factory=list)
 
 
 class ModerationModule(Module):

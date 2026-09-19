@@ -10,7 +10,11 @@ from pydantic import ValidationError
 from collections import deque
 import time
 import datetime
+import uuid
 from core import config, database
+from bot.modules.custom_commands.engine import build_dropdown_view_from_data
+from bot.modules.custom_commands.workflow import build_embed
+from bot.modules.moderation.helpers import validate_regex_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -1741,6 +1745,356 @@ async def moderation_case_delete_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Failed to delete moderation case"}, status=500)
 
 
+# =====================================================================
+# CUSTOM COMMANDS ENDPOINTS
+# =====================================================================
+
+async def custom_commands_list_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        commands = []
+        if database.db is not None:
+            cursor = database.db.custom_commands.find({"guild_id": {"$in": [guild.id, str(guild.id)]}})
+            async for doc in cursor:
+                doc["_id"] = str(doc.get("_id", ""))
+                commands.append(doc)
+        return web.json_response(commands)
+    except Exception as e:
+        logger.exception("Error in custom_commands_list_handler: %s", e)
+        return web.json_response({"error": "Failed to retrieve custom commands"}, status=500)
+
+
+async def custom_command_post_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip().lower()
+        if not name:
+            return web.json_response({"error": "Command name is required"}, status=400)
+
+        # Check unique trigger name in guild
+        if database.db is not None:
+            existing = await database.db.custom_commands.find_one({
+                "guild_id": {"$in": [guild.id, str(guild.id)]},
+                "name": name,
+            })
+            if existing:
+                return web.json_response({"error": f"A command with trigger '{name}' already exists."}, status=409)
+
+        cmd_id = data.get("id") or uuid.uuid4().hex[:10]
+        doc = {
+            "id": cmd_id,
+            "guild_id": guild.id,
+            "name": name,
+            "aliases": [str(a).strip().lower() for a in data.get("aliases", []) if str(a).strip()],
+            "description": str(data.get("description", ""))[:200],
+            "trigger_type": str(data.get("trigger_type", "prefix")),
+            "cooldown_seconds": max(0, int(data.get("cooldown_seconds", 0) or 0)),
+            "allowed_roles": [str(r) for r in data.get("allowed_roles", []) if r],
+            "allowed_channels": [str(c) for c in data.get("allowed_channels", []) if c],
+            "enabled": bool(data.get("enabled", True)),
+            "actions": data.get("actions", []),
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+        if database.db is not None:
+            await database.db.custom_commands.insert_one(doc)
+            doc["_id"] = str(doc.get("_id", ""))
+
+        return web.json_response({"status": "ok", "command": doc}, status=201)
+    except Exception as e:
+        logger.exception("Error in custom_command_post_handler: %s", e)
+        return web.json_response({"error": "Failed to create custom command"}, status=400)
+
+
+async def custom_command_put_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    cmd_id = request.match_info.get("cmd_id") or request.match_info.get("id")
+    if not cmd_id:
+        return web.json_response({"error": "Command id is required"}, status=400)
+
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip().lower()
+        if not name:
+            return web.json_response({"error": "Command name is required"}, status=400)
+
+        update_fields = {
+            "name": name,
+            "aliases": [str(a).strip().lower() for a in data.get("aliases", []) if str(a).strip()],
+            "description": str(data.get("description", ""))[:200],
+            "trigger_type": str(data.get("trigger_type", "prefix")),
+            "cooldown_seconds": max(0, int(data.get("cooldown_seconds", 0) or 0)),
+            "allowed_roles": [str(r) for r in data.get("allowed_roles", []) if r],
+            "allowed_channels": [str(c) for c in data.get("allowed_channels", []) if c],
+            "enabled": bool(data.get("enabled", True)),
+            "actions": data.get("actions", []),
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+        if database.db is not None:
+            res = await database.db.custom_commands.find_one_and_update(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "$or": [{"id": cmd_id}, {"_id": cmd_id}]},
+                {"$set": update_fields},
+                return_document=database.ReturnDocument.AFTER,
+            )
+            if not res:
+                return web.json_response({"error": "command_not_found"}, status=404)
+            res["_id"] = str(res.get("_id", ""))
+            return web.json_response({"status": "ok", "command": res})
+
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in custom_command_put_handler: %s", e)
+        return web.json_response({"error": "Failed to update custom command"}, status=400)
+
+
+async def custom_command_delete_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    cmd_id = request.match_info.get("cmd_id") or request.match_info.get("id")
+    if not cmd_id:
+        return web.json_response({"error": "Command id is required"}, status=400)
+
+    try:
+        if database.db is not None:
+            res = await database.db.custom_commands.delete_one(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "$or": [{"id": cmd_id}, {"_id": cmd_id}]}
+            )
+            if res.deleted_count == 0:
+                return web.json_response({"error": "command_not_found"}, status=404)
+
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in custom_command_delete_handler: %s", e)
+        return web.json_response({"error": "Failed to delete custom command"}, status=500)
+
+
+# =====================================================================
+# CUSTOM DROPDOWNS ENDPOINTS
+# =====================================================================
+
+async def custom_dropdowns_list_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        dropdowns = []
+        if database.db is not None:
+            cursor = database.db.custom_dropdowns.find({"guild_id": {"$in": [guild.id, str(guild.id)]}})
+            async for doc in cursor:
+                doc["_id"] = str(doc.get("_id", ""))
+                dropdowns.append(doc)
+        return web.json_response(dropdowns)
+    except Exception as e:
+        logger.exception("Error in custom_dropdowns_list_handler: %s", e)
+        return web.json_response({"error": "Failed to retrieve custom dropdowns"}, status=500)
+
+
+async def custom_dropdown_post_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    try:
+        data = await request.json()
+        title = str(data.get("title", "")).strip()
+        if not title:
+            return web.json_response({"error": "Dropdown title is required"}, status=400)
+
+        dd_id = data.get("id") or uuid.uuid4().hex[:10]
+        doc = {
+            "id": dd_id,
+            "guild_id": guild.id,
+            "title": title,
+            "placeholder": str(data.get("placeholder", "Choose an option..."))[:100],
+            "min_values": max(1, int(data.get("min_values", 1) or 1)),
+            "max_values": max(1, int(data.get("max_values", 1) or 1)),
+            "message_id": data.get("message_id"),
+            "channel_id": data.get("channel_id"),
+            "panel_content": data.get("panel_content"),
+            "panel_embed": data.get("panel_embed"),
+            "options": data.get("options", []),
+            "enabled": bool(data.get("enabled", True)),
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+        if database.db is not None:
+            await database.db.custom_dropdowns.insert_one(doc)
+            doc["_id"] = str(doc.get("_id", ""))
+
+        return web.json_response({"status": "ok", "dropdown": doc}, status=201)
+    except Exception as e:
+        logger.exception("Error in custom_dropdown_post_handler: %s", e)
+        return web.json_response({"error": "Failed to create custom dropdown"}, status=400)
+
+
+async def custom_dropdown_put_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    dd_id = request.match_info.get("dd_id") or request.match_info.get("id")
+    if not dd_id:
+        return web.json_response({"error": "Dropdown id is required"}, status=400)
+
+    try:
+        data = await request.json()
+        title = str(data.get("title", "")).strip()
+        if not title:
+            return web.json_response({"error": "Dropdown title is required"}, status=400)
+
+        update_fields = {
+            "title": title,
+            "placeholder": str(data.get("placeholder", "Choose an option..."))[:100],
+            "min_values": max(1, int(data.get("min_values", 1) or 1)),
+            "max_values": max(1, int(data.get("max_values", 1) or 1)),
+            "channel_id": data.get("channel_id"),
+            "panel_content": data.get("panel_content"),
+            "panel_embed": data.get("panel_embed"),
+            "options": data.get("options", []),
+            "enabled": bool(data.get("enabled", True)),
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+        if database.db is not None:
+            res = await database.db.custom_dropdowns.find_one_and_update(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "$or": [{"id": dd_id}, {"_id": dd_id}]},
+                {"$set": update_fields},
+                return_document=database.ReturnDocument.AFTER,
+            )
+            if not res:
+                return web.json_response({"error": "dropdown_not_found"}, status=404)
+            res["_id"] = str(res.get("_id", ""))
+            return web.json_response({"status": "ok", "dropdown": res})
+
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in custom_dropdown_put_handler: %s", e)
+        return web.json_response({"error": "Failed to update custom dropdown"}, status=400)
+
+
+async def custom_dropdown_delete_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    dd_id = request.match_info.get("dd_id") or request.match_info.get("id")
+    if not dd_id:
+        return web.json_response({"error": "Dropdown id is required"}, status=400)
+
+    try:
+        if database.db is not None:
+            res = await database.db.custom_dropdowns.delete_one(
+                {"guild_id": {"$in": [guild.id, str(guild.id)]}, "$or": [{"id": dd_id}, {"_id": dd_id}]}
+            )
+            if res.deleted_count == 0:
+                return web.json_response({"error": "dropdown_not_found"}, status=404)
+
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        logger.exception("Error in custom_dropdown_delete_handler: %s", e)
+        return web.json_response({"error": "Failed to delete custom dropdown"}, status=500)
+
+
+async def custom_dropdown_publish_handler(request: web.Request) -> web.Response:
+    guild = _get_guild(request)
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    bot = request.app.get("bot")
+    dd_id = request.match_info.get("dd_id") or request.match_info.get("id")
+    if not dd_id:
+        return web.json_response({"error": "Dropdown id is required"}, status=400)
+
+    try:
+        data = await request.json() if request.can_read_body else {}
+    except Exception:
+        data = {}
+
+    try:
+        doc = await database.db.custom_dropdowns.find_one(
+            {"guild_id": {"$in": [guild.id, str(guild.id)]}, "$or": [{"id": dd_id}, {"_id": dd_id}]}
+        )
+        if not doc:
+            return web.json_response({"error": "dropdown_not_found"}, status=404)
+
+        channel_id_raw = data.get("channel_id") or doc.get("channel_id")
+        if not channel_id_raw:
+            return web.json_response({"error": "channel_id is required to publish"}, status=400)
+
+        channel = guild.get_channel(int(str(channel_id_raw)))
+        if not channel or not hasattr(channel, "send"):
+            return web.json_response({"error": "Target channel not found or cannot send messages"}, status=400)
+
+        # Build view
+        view = build_dropdown_view_from_data(doc)
+
+        # Build message & embed
+        content = doc.get("panel_content") or None
+        embed = build_embed(doc.get("panel_embed"), {"server": guild.name, "channel": channel.name})
+        if not content and not embed:
+            content = f"**{doc.get('title', 'Select Menu')}**\nPlease make your selection below:"
+
+        msg = await channel.send(content=content, embed=embed, view=view)
+
+        # Register persistent view
+        if bot:
+            bot.add_view(view, message_id=msg.id)
+
+        # Update doc in database with message_id and channel_id
+        await database.db.custom_dropdowns.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"message_id": str(msg.id), "channel_id": str(channel.id)}}
+        )
+
+        return web.json_response({
+            "status": "ok",
+            "message_id": str(msg.id),
+            "channel_id": str(channel.id),
+        })
+    except Exception as e:
+        logger.exception("Error in custom_dropdown_publish_handler: %s", e)
+        return web.json_response({"error": f"Failed to publish dropdown: {e}"}, status=500)
+
+
+# =====================================================================
+# MODERATION REGEX TEST ENDPOINT
+# =====================================================================
+
+async def moderation_regex_test_handler(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        pattern = str(data.get("pattern", "")).strip()
+        test_string = str(data.get("test_string", ""))
+
+        valid, error = validate_regex_pattern(pattern)
+        if not valid:
+            return web.json_response({"valid": False, "error": error})
+
+        match = re.search(pattern, test_string, re.IGNORECASE)
+        return web.json_response({
+            "valid": True,
+            "matches": bool(match),
+            "match": match.group(0) if match else None,
+            "span": list(match.span()) if match else None,
+        })
+    except Exception as e:
+        return web.json_response({"valid": False, "error": str(e)}, status=400)
+
+
 def create_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth_middleware])
     app["bot"] = bot
@@ -1783,6 +2137,20 @@ def create_app(bot) -> web.Application:
         # Moderation endpoints
         app.router.add_get(f"{prefix}/moderation/cases", moderation_cases_list_handler)
         app.router.add_delete(f"{prefix}/moderation/cases/{{case_id}}", moderation_case_delete_handler)
+        app.router.add_post(f"{prefix}/moderation/test-regex", moderation_regex_test_handler)
+
+        # Custom Commands endpoints
+        app.router.add_get(f"{prefix}/custom-commands", custom_commands_list_handler)
+        app.router.add_post(f"{prefix}/custom-commands", custom_command_post_handler)
+        app.router.add_put(f"{prefix}/custom-commands/{{id}}", custom_command_put_handler)
+        app.router.add_delete(f"{prefix}/custom-commands/{{id}}", custom_command_delete_handler)
+
+        # Custom Dropdowns endpoints
+        app.router.add_get(f"{prefix}/custom-dropdowns", custom_dropdowns_list_handler)
+        app.router.add_post(f"{prefix}/custom-dropdowns", custom_dropdown_post_handler)
+        app.router.add_put(f"{prefix}/custom-dropdowns/{{id}}", custom_dropdown_put_handler)
+        app.router.add_delete(f"{prefix}/custom-dropdowns/{{id}}", custom_dropdown_delete_handler)
+        app.router.add_post(f"{prefix}/custom-dropdowns/{{id}}/publish", custom_dropdown_publish_handler)
 
     app.router.add_get("/modules", modules_list_handler)
 

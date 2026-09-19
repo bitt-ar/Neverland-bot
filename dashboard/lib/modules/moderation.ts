@@ -25,6 +25,15 @@ export interface BadWordsConfig {
   words: string[];
 }
 
+export interface RegexRuleConfig {
+  id?: string;
+  name: string;
+  pattern: string;
+  action: "delete" | "warn" | "timeout" | "kick" | "ban";
+  timeout_minutes: number;
+  enabled: boolean;
+}
+
 export interface ModerationConfig {
   mod_logs_channel_id: string | null;
   disabled_commands: string[];
@@ -33,6 +42,7 @@ export interface ModerationConfig {
   anti_invite: AntiInviteConfig;
   anti_mention: AntiMentionConfig;
   bad_words: BadWordsConfig;
+  custom_regex_patterns?: RegexRuleConfig[];
 }
 
 export interface ModerationConfigResponse {
@@ -81,6 +91,7 @@ export const DEFAULT_MODERATION_CONFIG: ModerationConfig = {
     action: "delete",
     words: [],
   },
+  custom_regex_patterns: [],
 };
 
 export const MODERATION_COMMANDS = [
