@@ -39,14 +39,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Setup Node.js & pnpm
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 9
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Verify Builds
         run: |
@@ -55,7 +54,7 @@ jobs:
           python -m py_compile main.py
           python -m py_compile cli/neverland.py
           cd dashboard
-          pnpm install --frozen-lockfile=false
+          pnpm install --no-frozen-lockfile --config.strict-peer-dependencies=false
           pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: 1

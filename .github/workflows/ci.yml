@@ -29,7 +29,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Compile and Lint Python Core
+      - name: Compile Python Core & CLI
         run: |
           python -m py_compile main.py
           python -m py_compile cli/neverland.py
@@ -44,20 +44,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Install Dashboard Dependencies
         run: |
           cd dashboard
-          pnpm install --frozen-lockfile=false
+          pnpm install --no-frozen-lockfile --config.strict-peer-dependencies=false
 
       - name: Run Dashboard Lint
         run: |
