@@ -837,17 +837,18 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
 
       {/* ----------------- MODAL: COMMAND BUILDER ----------------- */}
       <Dialog open={cmdDialogOpen} onOpenChange={setCmdDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="max-w-4xl max-h-[88vh] flex flex-col p-0 overflow-hidden border border-border/80 shadow-2xl bg-card">
+          <DialogHeader className="p-6 pb-4 border-b border-border/60 shrink-0">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
               {editingCmd ? "Edit Custom Command" : "Create Custom Command"}
             </DialogTitle>
             <DialogDescription>
-              Configure the trigger condition and multi-step action workflow for this command.
+              Configure the trigger condition, permissions, and multi-step action workflow for this command.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Trigger info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1169,27 +1170,34 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
             </div>
           </div>
 
-          <DialogFooter className="pt-2 border-t">
-            <Button variant="outline" onClick={() => setCmdDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveCommand} disabled={cmdSubmitting}>
-              {cmdSubmitting ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              {editingCmd ? "Save Changes" : "Create Command"}
-            </Button>
+          <DialogFooter className="p-4 px-6 border-t border-border/60 bg-muted/20 shrink-0 flex items-center justify-between sm:justify-between w-full m-0">
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary" />
+              <span>{cmdActions.length} action(s) in workflow</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setCmdDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleSaveCommand} disabled={cmdSubmitting} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                {cmdSubmitting ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                {editingCmd ? "Save Changes" : "Create Command"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ----------------- MODAL: DROPDOWN MENU BUILDER ----------------- */}
       <Dialog open={ddDialogOpen} onOpenChange={setDdDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="max-w-4xl max-h-[88vh] flex flex-col p-0 overflow-hidden border border-border/80 shadow-2xl bg-card">
+          <DialogHeader className="p-6 pb-4 border-b border-border/60 shrink-0">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />
               {editingDd ? "Edit Select Menu" : "Create Select Menu"}
             </DialogTitle>
             <DialogDescription>
@@ -1197,7 +1205,7 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="dd-title">Menu Title *</Label>
@@ -1443,25 +1451,31 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
             </div>
           </div>
 
-          <DialogFooter className="pt-2 border-t">
-            <Button variant="outline" onClick={() => setDdDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveDropdown} disabled={ddSubmitting}>
-              {ddSubmitting ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              {editingDd ? "Save Changes" : "Create Select Menu"}
-            </Button>
+          <DialogFooter className="p-4 px-6 border-t border-border/60 bg-muted/20 shrink-0 flex items-center justify-between sm:justify-between w-full m-0">
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary" />
+              <span>{ddOptions.length} option(s) configured (max 25)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setDdDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleSaveDropdown} disabled={ddSubmitting} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                {ddSubmitting ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                {editingDd ? "Save Changes" : "Create Select Menu"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ----------------- MODAL: PUBLISH PANEL TO CHANNEL ----------------- */}
       <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg p-6 border border-border/80 shadow-2xl bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Send className="h-5 w-5 text-primary" />
