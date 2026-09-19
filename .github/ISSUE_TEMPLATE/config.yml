@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "💬 Community & Support"
+    url: "https://github.com/bitt-ar/Neverland-bot/discussions"
+    about: "Ask questions, share configurations, and get help from the community."
+  - name: "☕ Support on Ko-fi"
+    url: "https://ko-fi.com/E1E41CVWBU"
+    about: "Support the continuous development and maintenance of Neverland."

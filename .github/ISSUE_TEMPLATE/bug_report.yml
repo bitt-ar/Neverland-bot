@@ -1,0 +1,59 @@
+name: "Bug Report"
+description: "Report a bug or unexpected behavior in Neverland Bot or Dashboard"
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue with Neverland Bot!
+        Please ensure you are using the latest version before submitting.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - "Discord Bot (Python / Cogs)"
+        - "Web Dashboard (Next.js 15)"
+        - "Neverland CLI (`neverland`)"
+        - "Control Plane IPC (:8800)"
+        - "Installer (`install.sh` / `install.ps1`)"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Operating Environment
+      options:
+        - "Windows (PowerShell/cmd)"
+        - "Linux (Ubuntu / Debian / CentOS / etc.)"
+        - "macOS"
+        - "Docker / Docker Compose"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Run 'neverland config' with ...
+        2. Execute 'neverland start'
+        3. See error in logs ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs or Error Output
+      description: Paste any logs from 'neverland logs' or terminal output.
+      render: shell

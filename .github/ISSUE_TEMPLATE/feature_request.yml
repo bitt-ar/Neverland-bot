@@ -1,0 +1,31 @@
+name: "Feature Request"
+description: "Suggest a new idea or enhancement for Neverland Bot or Dashboard"
+title: "[FEATURE]: "
+labels: ["enhancement", "discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping make Neverland better! Suggest ideas for new bot modules, dashboard widgets, or CLI improvements.
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Summary
+      description: What would you like Neverland to be able to do?
+      placeholder: A clear and concise description of the proposed feature.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation & Problem
+      description: What problem does this solve? Why is this feature needed?
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Implementation / Ideas
+      description: Any specific ideas on how this should work or be configured?
+      placeholder: How should this work in Discord slash commands, dashboard, or CLI?

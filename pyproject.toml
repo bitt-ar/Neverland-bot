@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neverland-bot"
+version = "1.0.0"
+description = "All-in-One Discord Automation Platform & Supabase-styled Dashboard"
+readme = "README.md"
+authors = [{ name = "bitt-ar", email = "bitt-ar@github.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "discord.py>=2.7.1",
+    "davey",
+    "Pillow",
+    "cryptography>=41.0.0",
+    "PyNaCl",
+    "python-dotenv",
+    "motor",
+    "aiohttp",
+    "pydantic"
+]
+
+[project.urls]
+Homepage = "https://github.com/bitt-ar/Neverland-bot"
+Funding = "https://ko-fi.com/E1E41CVWBU"
+
+[project.scripts]
+neverland = "cli.neverland:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cli*", "bot*", "core*", "cogs*"]
