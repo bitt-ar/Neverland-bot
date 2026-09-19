@@ -61,16 +61,7 @@ interface CustomCommandsClientProps {
   guildId: string;
 }
 
-const ACTION_TYPE_LABELS: Record<string, { label: string; icon: string }> = {
-  send_message: { label: "Send Channel Message", icon: "💬" },
-  reply_ephemeral: { label: "Private Ephemeral Reply", icon: "🔒" },
-  send_dm: { label: "Send Direct Message (DM)", icon: "✉️" },
-  add_role: { label: "Add Role", icon: "➕" },
-  remove_role: { label: "Remove Role", icon: "➖" },
-  toggle_role: { label: "Toggle Role", icon: "🔄" },
-  delete_trigger: { label: "Delete Trigger Message", icon: "🗑️" },
-  send_log: { label: "Send Audit Log", icon: "📋" },
-};
+import { ActionCard, ACTION_TYPE_LABELS } from "./action-card";
 
 const TEMPLATE_VARIABLES = [
   { tag: "{user}", desc: "User username" },
@@ -1029,142 +1020,43 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
               {/* Actions list */}
               <div className="space-y-3">
                 {cmdActions.map((act, idx) => (
-                  <Card key={idx} className="p-4 border relative space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold">
-                          {idx + 1}
-                        </span>
-                        <Select
-                          value={act.type}
-                          onValueChange={(type: string | null) => {
-                            if (!type) return;
+                  <ActionCard
+                    key={idx}
+                    action={act}
+                    index={idx}
+                    total={cmdActions.length}
+                    isDropdownOption={false}
+                    channels={channels}
+                    roles={roles}
+                    onChange={(updated) => {
+                      const copy = [...cmdActions];
+                      copy[idx] = updated;
+                      setCmdActions(copy);
+                    }}
+                    onRemove={() => setCmdActions(cmdActions.filter((_, i) => i !== idx))}
+                    onMoveUp={
+                      idx > 0
+                        ? () => {
                             const copy = [...cmdActions];
-                            copy[idx] = { ...copy[idx], type: String(type) };
+                            const temp = copy[idx - 1];
+                            copy[idx - 1] = copy[idx];
+                            copy[idx] = temp;
                             setCmdActions(copy);
-                          }}
-                        >
-                          <SelectTrigger className="w-[240px] h-8 text-xs font-medium">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Object.entries(ACTION_TYPE_LABELS).map(([key, info]) => (
-                              <SelectItem key={key} value={key} className="text-xs">
-                                {info.icon} {info.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-destructive"
-                        onClick={() => setCmdActions(cmdActions.filter((_, i) => i !== idx))}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    {/* Action parameters based on type */}
-                    {["send_message", "reply_ephemeral", "send_dm", "send_log"].includes(act.type) && (
-                      <div className="space-y-2">
-                        <Label className="text-xs">Message Content</Label>
-                        <Textarea
-                          value={act.content || ""}
-                          onChange={(e) => {
+                          }
+                        : undefined
+                    }
+                    onMoveDown={
+                      idx < cmdActions.length - 1
+                        ? () => {
                             const copy = [...cmdActions];
-                            copy[idx] = { ...copy[idx], content: e.target.value };
+                            const temp = copy[idx + 1];
+                            copy[idx + 1] = copy[idx];
+                            copy[idx] = temp;
                             setCmdActions(copy);
-                          }}
-                          placeholder="Type response message here... (supports {user}, {server}, etc.)"
-                          className="text-xs min-h-[60px]"
-                        />
-
-                        {/* Embed toggle / fields */}
-                        <div className="pt-2 border-t space-y-2">
-                          <Label className="text-xs font-medium text-muted-foreground">Optional Embed:</Label>
-                          <div className="grid grid-cols-2 gap-2">
-                            <Input
-                              placeholder="Embed Title"
-                              value={act.embed?.title || ""}
-                              onChange={(e) => {
-                                const copy = [...cmdActions];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  embed: { ...copy[idx].embed, title: e.target.value },
-                                };
-                                setCmdActions(copy);
-                              }}
-                              className="text-xs h-8"
-                            />
-                            <Input
-                              placeholder="Embed Hex Color (e.g. #5865F2)"
-                              value={act.embed?.color || ""}
-                              onChange={(e) => {
-                                const copy = [...cmdActions];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  embed: { ...copy[idx].embed, color: e.target.value },
-                                };
-                                setCmdActions(copy);
-                              }}
-                              className="text-xs h-8 font-mono"
-                            />
-                          </div>
-                          <Textarea
-                            placeholder="Embed Description"
-                            value={act.embed?.description || ""}
-                            onChange={(e) => {
-                              const copy = [...cmdActions];
-                              copy[idx] = {
-                                ...copy[idx],
-                                embed: { ...copy[idx].embed, description: e.target.value },
-                              };
-                              setCmdActions(copy);
-                            }}
-                            className="text-xs min-h-[50px]"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {["add_role", "remove_role", "toggle_role"].includes(act.type) && (
-                      <div className="space-y-2">
-                        <Label className="text-xs">Target Role</Label>
-                        <SelectSearchable
-                          options={roles.map((r) => ({ value: r.id, label: `@${r.name}` }))}
-                          value={act.role_id || ""}
-                          onValueChange={(rId) => {
-                            const copy = [...cmdActions];
-                            copy[idx] = { ...copy[idx], role_id: rId };
-                            setCmdActions(copy);
-                          }}
-                          placeholder="Select role to assign or remove..."
-                        />
-                      </div>
-                    )}
-
-                    {act.type === "send_log" && (
-                      <div className="space-y-2">
-                        <Label className="text-xs">Audit Log Channel</Label>
-                        <SelectSearchable
-                          options={channels
-                            .filter((c) => c.type === "text")
-                            .map((c) => ({ value: c.id, label: `#${c.name}` }))}
-                          value={act.channel_id || ""}
-                          onValueChange={(cId) => {
-                            const copy = [...cmdActions];
-                            copy[idx] = { ...copy[idx], channel_id: cId };
-                            setCmdActions(copy);
-                          }}
-                          placeholder="Select channel for audit event..."
-                        />
-                      </div>
-                    )}
-                  </Card>
+                          }
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             </div>
@@ -1388,61 +1280,95 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
                       </div>
                     </div>
 
-                    {/* Option Action */}
-                    <div className="p-2.5 bg-muted/30 rounded border space-y-2">
-                      <Label className="text-xs font-medium">When Selected:</Label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <Select
-                          value={opt.actions?.[0]?.type || "toggle_role"}
-                          onValueChange={(t: string | null) => {
-                            if (!t) return;
+                    {/* Option Actions Pipeline */}
+                    <div className="p-3 bg-muted/20 rounded-lg border border-border/70 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-xs font-semibold flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-primary" />
+                            Option Actions Pipeline ({(opt.actions || []).length})
+                          </Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            Executed when a server member selects this option from the dropdown menu.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
                             const copy = [...ddOptions];
                             const currentActs = copy[oIdx].actions || [];
-                            copy[oIdx].actions = [{ ...(currentActs[0] || {}), type: String(t) }];
+                            copy[oIdx].actions = [
+                              ...currentActs,
+                              { type: "toggle_role", role_id: roles[0]?.id || "" },
+                            ];
                             setDdOptions(copy);
                           }}
                         >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="toggle_role">🔄 Toggle Role</SelectItem>
-                            <SelectItem value="add_role">➕ Add Role</SelectItem>
-                            <SelectItem value="remove_role">➖ Remove Role</SelectItem>
-                            <SelectItem value="reply_ephemeral">🔒 Private Reply</SelectItem>
-                            <SelectItem value="send_dm">✉️ Send DM</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add Action
+                        </Button>
+                      </div>
 
-                        {["toggle_role", "add_role", "remove_role"].includes(
-                          opt.actions?.[0]?.type || "toggle_role"
-                        ) && (
-                          <SelectSearchable
-                            options={roles.map((r) => ({ value: r.id, label: `@${r.name}` }))}
-                            value={opt.actions?.[0]?.role_id || ""}
-                            onValueChange={(rId) => {
+                      <div className="space-y-2">
+                        {(opt.actions && opt.actions.length > 0
+                          ? opt.actions
+                          : [{ type: "toggle_role", role_id: roles[0]?.id || "" }]
+                        ).map((act, aIdx) => (
+                          <ActionCard
+                            key={aIdx}
+                            action={act}
+                            index={aIdx}
+                            total={(opt.actions || []).length}
+                            isDropdownOption={true}
+                            channels={channels}
+                            roles={roles}
+                            onChange={(updated) => {
                               const copy = [...ddOptions];
-                              const act = copy[oIdx].actions?.[0] || { type: "toggle_role" };
-                              copy[oIdx].actions = [{ ...act, role_id: rId }];
+                              const acts = [...(copy[oIdx].actions || [{ type: "toggle_role" }])];
+                              acts[aIdx] = updated;
+                              copy[oIdx].actions = acts;
                               setDdOptions(copy);
                             }}
-                            placeholder="Select role..."
-                          />
-                        )}
-
-                        {["reply_ephemeral", "send_dm"].includes(opt.actions?.[0]?.type) && (
-                          <Input
-                            placeholder="Message text for user..."
-                            value={opt.actions?.[0]?.content || ""}
-                            onChange={(e) => {
+                            onRemove={() => {
                               const copy = [...ddOptions];
-                              const act = copy[oIdx].actions?.[0] || { type: "reply_ephemeral" };
-                              copy[oIdx].actions = [{ ...act, content: e.target.value }];
+                              const acts = (copy[oIdx].actions || []).filter((_, i) => i !== aIdx);
+                              copy[oIdx].actions =
+                                acts.length > 0
+                                  ? acts
+                                  : [{ type: "toggle_role", role_id: roles[0]?.id || "" }];
                               setDdOptions(copy);
                             }}
-                            className="text-xs h-8"
+                            onMoveUp={
+                              aIdx > 0
+                                ? () => {
+                                    const copy = [...ddOptions];
+                                    const acts = [...(copy[oIdx].actions || [])];
+                                    const temp = acts[aIdx - 1];
+                                    acts[aIdx - 1] = acts[aIdx];
+                                    acts[aIdx] = temp;
+                                    copy[oIdx].actions = acts;
+                                    setDdOptions(copy);
+                                  }
+                                : undefined
+                            }
+                            onMoveDown={
+                              aIdx < (opt.actions || []).length - 1
+                                ? () => {
+                                    const copy = [...ddOptions];
+                                    const acts = [...(copy[oIdx].actions || [])];
+                                    const temp = acts[aIdx + 1];
+                                    acts[aIdx + 1] = acts[aIdx];
+                                    acts[aIdx] = temp;
+                                    copy[oIdx].actions = acts;
+                                    setDdOptions(copy);
+                                  }
+                                : undefined
+                            }
                           />
-                        )}
+                        ))}
                       </div>
                     </div>
                   </Card>

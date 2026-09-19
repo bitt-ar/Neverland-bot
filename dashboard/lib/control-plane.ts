@@ -322,6 +322,29 @@ export interface WorkflowAction {
     image?: string;
   } | null;
   ephemeral?: boolean;
+  emoji?: string | null;
+  choices?: (string | { content?: string; embed?: Record<string, unknown> })[];
+  nickname?: string | null;
+  target?: "bot_message" | "trigger";
+  seconds?: number;
+  action?: "lock" | "unlock";
+  name?: string;
+  category_id?: string | null;
+  user_limit?: number;
+  duration_minutes?: number;
+  reason?: string;
+  delete_days?: number;
+  title?: string;
+  fields?: {
+    label: string;
+    style?: "short" | "paragraph";
+    placeholder?: string;
+    required?: boolean;
+    min_length?: number;
+    max_length?: number;
+  }[];
+  submission_channel_id?: string | null;
+  response_message?: string | null;
 }
 
 export interface CommandDefinition {

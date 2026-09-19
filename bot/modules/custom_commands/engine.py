@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from bot.modules.custom_commands.workflow import WorkflowRunner
+from bot.modules.custom_commands.actions.channels import cleanup_empty_custom_voice_channels
 from bot.modules.tickets.helpers import sanitize_button_emoji
 from core import database
 
@@ -109,6 +110,11 @@ class CustomCommandsEngineCog(commands.Cog):
             logger.info("Restored %d persistent custom dropdown views.", count)
         except Exception as e:
             logger.warning("Could not restore custom dropdowns from database: %s", e)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        """Clean up temporary voice channels created by custom commands when empty."""
+        await cleanup_empty_custom_voice_channels(member, before, after)
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):

@@ -163,6 +163,9 @@ class WorkflowRunner:
             self.context.update(context_vars)
 
         self.responded_interaction = False
+        self.modal_shown = False
+        self.last_sent_message = None
+        self.trigger_deleted = False
 
     async def execute_all(self, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Run all actions in order. Returns execution results summary."""
@@ -170,9 +173,12 @@ class WorkflowRunner:
         if not actions or not isinstance(actions, list):
             return results
 
-        for idx, action in enumerate(actions):
-            if not isinstance(action, dict):
-                continue
+        # In Discord, show_modal MUST be the very first response to an interaction before any other response/ack
+        modal_actions = [a for a in actions if isinstance(a, dict) and a.get("type", "").strip().lower() == "show_modal"]
+        other_actions = [a for a in actions if isinstance(a, dict) and a.get("type", "").strip().lower() != "show_modal"]
+        ordered_actions = modal_actions + other_actions
+
+        for idx, action in enumerate(ordered_actions):
             act_type = action.get("type", "").strip().lower()
             try:
                 res = await self._run_action(act_type, action)
@@ -192,22 +198,60 @@ class WorkflowRunner:
         return results
 
     async def _run_action(self, act_type: str, action: dict[str, Any]) -> Any:
+        from .actions import communication, roles_identity, channels, moderation, timing, modals
+
+        # Communication
         if act_type == "send_message":
-            return await self._action_send_message(action)
+            return await communication.execute_send_message(self, action)
         elif act_type in ("reply_ephemeral", "reply"):
-            return await self._action_reply(action, ephemeral=(act_type == "reply_ephemeral"))
+            return await communication.execute_reply(self, action, ephemeral=(act_type == "reply_ephemeral"))
         elif act_type == "send_dm":
-            return await self._action_send_dm(action)
+            return await communication.execute_send_dm(self, action)
+        elif act_type == "add_reaction":
+            return await communication.execute_add_reaction(self, action)
+        elif act_type == "random_response":
+            return await communication.execute_random_response(self, action)
+
+        # Roles & Identity
         elif act_type == "add_role":
-            return await self._action_role(action, operation="add")
+            return await roles_identity.execute_role(self, action, operation="add")
         elif act_type == "remove_role":
-            return await self._action_role(action, operation="remove")
+            return await roles_identity.execute_role(self, action, operation="remove")
         elif act_type == "toggle_role":
-            return await self._action_role(action, operation="toggle")
+            return await roles_identity.execute_role(self, action, operation="toggle")
+        elif act_type == "change_nickname":
+            return await roles_identity.execute_change_nickname(self, action)
+
+        # Channels & Environment
         elif act_type == "delete_trigger":
-            return await self._action_delete_trigger(action)
+            return await channels.execute_delete_trigger(self, action)
+        elif act_type == "pin_message":
+            return await channels.execute_pin_message(self, action)
+        elif act_type == "slowmode_channel":
+            return await channels.execute_slowmode_channel(self, action)
+        elif act_type == "lock_channel":
+            return await channels.execute_lock_channel(self, action)
+        elif act_type == "create_temp_voice":
+            return await channels.execute_create_temp_voice(self, action)
+
+        # Moderation
         elif act_type == "send_log":
-            return await self._action_send_log(action)
+            return await moderation.execute_send_log(self, action)
+        elif act_type == "timeout_member":
+            return await moderation.execute_timeout_member(self, action)
+        elif act_type == "kick_member":
+            return await moderation.execute_kick_member(self, action)
+        elif act_type == "ban_member":
+            return await moderation.execute_ban_member(self, action)
+
+        # Timing
+        elif act_type == "wait_delay":
+            return await timing.execute_wait_delay(self, action)
+
+        # Modals (Dropdown Interactions)
+        elif act_type == "show_modal":
+            return await modals.execute_show_modal(self, action)
+
         else:
             logger.debug("Unknown workflow action type: %s", act_type)
             return None
