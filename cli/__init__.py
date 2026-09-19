@@ -1,7 +1,7 @@
 """Neverland CLI package.
 
-Created with ❤️ by bitt-ar
-Ko-fi: https://ko-fi.com/E1E41CVWBU
+Created by bitt-ar
+GitHub: https://github.com/bitt-ar/Neverland-bot
 """
 
 __version__ = "1.0.0"

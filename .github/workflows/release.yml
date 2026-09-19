@@ -61,59 +61,56 @@ jobs:
           MONGODB_URI: "mongodb://localhost:27017/neverland"
           CONTROL_PLANE_SECRET: "release_verification_secret_012345"
 
-      - name: Create Release Tarballs & Checksums
+      - name: Prepare Release Artifacts & Checksums
         run: |
-          VERSION="${{ steps.vars.outputs.TAG_NAME }}"
           mkdir -p dist
-          
-          # Create clean archive without .git
-          git archive --format=tar.gz --prefix="Neverland-${VERSION}/" HEAD -o "dist/Neverland-${VERSION}.tar.gz"
-          git archive --format=zip --prefix="Neverland-${VERSION}/" HEAD -o "dist/Neverland-${VERSION}.zip"
-          
-          # Copy standalone installers into dist
-          cp install.sh "dist/install.sh"
-          cp install.ps1 "dist/install.ps1"
-          
-          # Generate SHA256 checksums
+          cp scripts/install.sh dist/install.sh
+          cp scripts/install.ps1 dist/install.ps1
           cd dist
-          sha256sum Neverland-${VERSION}.tar.gz Neverland-${VERSION}.zip install.sh install.ps1 > SHA256SUMS.txt
+          sha256sum install.sh install.ps1 > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.TAG_NAME }}
-          name: "Neverland ${{ steps.vars.outputs.TAG_NAME }} - All-in-One Automation Platform"
+          name: "Neverland ${{ steps.vars.outputs.TAG_NAME }}"
           body: |
-            ## 🌟 Neverland ${{ steps.vars.outputs.TAG_NAME }}
-            
-            Enterprise-grade All-in-One Discord automation platform paired with a real-time Next.js 15 dashboard and unified cross-platform CLI.
-            
-            ### ⚡ Quick Install
-            
+            ## Neverland ${{ steps.vars.outputs.TAG_NAME }}
+
+            Neverland ${{ steps.vars.outputs.TAG_NAME }} establishes the initial production release of the All-in-One Discord automation platform, pairing an asynchronous Python bot core with a real-time Next.js 15 dashboard and an integrated cross-platform CLI.
+
+            ### Features & Capabilities
+
+            #### Universal CLI (`neverland`)
+            - **Interactive Configuration (`neverland config`)**: Dedicated setup wizard for Development and Production environments with mode-specific field prompts and preserved previous values.
+            - **Profile Isolation**: Strict isolation between `.neverland/profiles/dev.env` and `prod.env`. Modifying one profile never affects or overwrites the other.
+            - **Process Management (`neverland start`, `stop`, `restart`)**: Dual-process lifecycle coordination for both the Discord bot daemon and Next.js 15 dashboard, supporting both interactive foreground and detached daemon modes.
+            - **Telemetry & Monitoring (`neverland status`, `logs`)**: Real-time process inspection, port verification, and streaming log monitors.
+            - **Server Deployment Tools (`neverland domain`)**: Reverse proxy configuration generators for Nginx and Caddy, alongside Linux systemd unit file generators.
+            - **Uninstallation Wizard (`neverland uninstall`)**: Safe teardown workflow with explicit confirmation protection.
+
+            #### Modular Discord Engine
+            - **Support Tickets**: Race-safe ticket channel creation with atomic database counters, private channel isolation, and persistent components surviving restarts.
+            - **Moderation Suite**: Infraction case tracking for warning, timeout, kick, and ban actions with direct message notices and audit logging.
+            - **Giveaways**: Interactive giveaway creator with embed banners, duration countdowns, entry multipliers, role gates, and context menu reroll triggers.
+            - **Temporary Voice**: Dynamic voice channel generation on demand with automated ownership delegation, permission locks, member limits, and channel cleanup upon exit.
+            - **Leveling & Experience**: Message and voice XP calculation, per-user rate limiting, customizable announcements, rank cards rendered dynamically via Pillow, and tiered role rewards.
+            - **Reaction Roles**: Multi-mode role distribution via classic reactions, persistent Discord component buttons, and interactive dropdown selection menus with live configuration sync.
+            - **Control Plane IPC**: Real-time bidirectional control bridge between Next.js 15 route handlers and the Discord bot daemon (:8800) with cryptographic token validation.
+
+            ### Installation
+
             **Windows (PowerShell):**
             ```powershell
-            irm https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/install.ps1 | iex
+            irm https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/scripts/install.ps1 | iex
             ```
-            
+
             **Linux & macOS (Bash):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/scripts/install.sh | bash
             ```
-            
-            ### 🛠️ What's New in this Release
-            - Unified `neverland` CLI (`config`, `start`, `stop`, `status`, `logs`, `domain`, `uninstall`).
-            - Strict environment isolation between Development and Production.
-            - Automated server reverse proxy generator for custom domain binding.
-            - Real-time Next.js 15 dashboard with dark Supabase styling and bidirectional IPC.
-            
-            ---
-            
-            ### ☕ Support the Creator
-            Support continuous development on Ko-fi: **[https://ko-fi.com/E1E41CVWBU](https://ko-fi.com/E1E41CVWBU)**
           files: |
-            dist/Neverland-${{ steps.vars.outputs.TAG_NAME }}.tar.gz
-            dist/Neverland-${{ steps.vars.outputs.TAG_NAME }}.zip
             dist/install.sh
             dist/install.ps1
             dist/SHA256SUMS.txt

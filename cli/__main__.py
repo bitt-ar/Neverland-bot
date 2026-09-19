@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Neverland CLI root launcher."""
+"""Neverland CLI entrypoint for python -m cli."""
 from cli.neverland import main
 
 if __name__ == "__main__":

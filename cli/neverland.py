@@ -3,8 +3,8 @@
 Neverland Universal CLI
 Enterprise-grade Discord Automation & Management Platform
 
-Created with ❤️ by bitt-ar
-Support on Ko-fi: https://ko-fi.com/E1E41CVWBU
+Created by bitt-ar
+GitHub: https://github.com/bitt-ar/Neverland-bot
 """
 
 import sys
@@ -72,7 +72,7 @@ def print_banner():
  | |\\  |  __/\\ V /  __/ |  | | (_| | | | | (_| |
  |_| \\_|\\___| \\_/ \\___|_|  |_|\\__,_|_| |_|\\__,_|
 {Colors.RESET}{Colors.BOLD} Enterprise Discord Automation & Next.js 15 Web Dashboard{Colors.RESET}
- {Colors.YELLOW}Created with ❤️ by bitt-ar{Colors.RESET} | {Colors.GREEN}Ko-fi: https://ko-fi.com/E1E41CVWBU{Colors.RESET}
+ {Colors.YELLOW}Created by bitt-ar{Colors.RESET} | {Colors.GREEN}https://github.com/bitt-ar/Neverland-bot{Colors.RESET}
 ----------------------------------------------------------------------"""
     print(banner)
 
@@ -301,11 +301,11 @@ def cmd_config(args):
 
     # Save to isolated profile
     write_env_file(profile_file, new_cfg, header=f"Neverland Profile: {mode.upper()}")
-    print(f"\n{Colors.GREEN}✓ Settings saved safely to {profile_file}{Colors.RESET}")
+    print(f"\n{Colors.GREEN}[OK] Settings saved safely to {profile_file}{Colors.RESET}")
 
     # Activate profile
     activate_profile(mode)
-    print(f"{Colors.GREEN}✓ Active profile set to: {mode.upper()}{Colors.RESET}")
+    print(f"{Colors.GREEN}[OK] Active profile set to: {mode.upper()}{Colors.RESET}")
 
     configured = set(state.get("configured_modes", []))
     configured.add(mode)
@@ -316,10 +316,9 @@ def cmd_config(args):
     if mode == "prod":
         print(f"\n{Colors.YELLOW}IMPORTANT NOTICE FOR DISCORD DEVELOPER PORTAL:{Colors.RESET}")
         print(f"Make sure to add this Redirect URI in your Discord Application (OAuth2 > General):")
-        print(f"  👉 {Colors.CYAN}{new_cfg['DISCORD_REDIRECT_URI']}{Colors.RESET}\n")
+        print(f"  [-] {Colors.CYAN}{new_cfg['DISCORD_REDIRECT_URI']}{Colors.RESET}\n")
 
     print(f"Run {Colors.BOLD}neverland start{Colors.RESET} to launch your bot and dashboard!")
-    print(f"Support on Ko-fi: {Colors.CYAN}https://ko-fi.com/E1E41CVWBU{Colors.RESET}")
 
 
 # =====================================================================
@@ -397,10 +396,10 @@ def cmd_start(args):
         if is_daemon:
             bot_log = open(LOGS_DIR / "bot.log", "a", encoding="utf-8")
             bot_proc = subprocess.Popen(bot_cmd, cwd=str(BASE_DIR), env=env, stdout=bot_log, stderr=bot_log)
-            print(f"  {Colors.GREEN}✓ Discord Bot started in background (PID: {bot_proc.pid}){Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Discord Bot started in background (PID: {bot_proc.pid}){Colors.RESET}")
         else:
             bot_proc = subprocess.Popen(bot_cmd, cwd=str(BASE_DIR), env=env)
-            print(f"  {Colors.GREEN}✓ Discord Bot starting (PID: {bot_proc.pid})...{Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Discord Bot starting (PID: {bot_proc.pid})...{Colors.RESET}")
 
     # 2. Start Dashboard
     if not getattr(args, "bot_only", False):
@@ -423,10 +422,10 @@ def cmd_start(args):
         if is_daemon:
             dash_log = open(LOGS_DIR / "dashboard.log", "a", encoding="utf-8")
             dash_proc = subprocess.Popen(dash_cmd, cwd=str(DASHBOARD_DIR), env=env, stdout=dash_log, stderr=dash_log)
-            print(f"  {Colors.GREEN}✓ Next.js Dashboard started in background (PID: {dash_proc.pid}){Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Next.js Dashboard started in background (PID: {dash_proc.pid}){Colors.RESET}")
         else:
             dash_proc = subprocess.Popen(dash_cmd, cwd=str(DASHBOARD_DIR), env=env)
-            print(f"  {Colors.GREEN}✓ Next.js Dashboard starting (PID: {dash_proc.pid})...{Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Next.js Dashboard starting (PID: {dash_proc.pid})...{Colors.RESET}")
 
     # Save PIDs
     save_pids({
@@ -437,10 +436,9 @@ def cmd_start(args):
     })
 
     app_url = env_vars.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
-    print(f"\n{Colors.BOLD}{Colors.GREEN}✨ Neverland is operational!{Colors.RESET}")
+    print(f"\n{Colors.BOLD}{Colors.GREEN}[OK] Neverland is operational.{Colors.RESET}")
     print(f"  Web Dashboard: {Colors.CYAN}{app_url}{Colors.RESET}")
-    print(f"  Bot Control Plane: {Colors.DIM}http://127.0.0.1:{env_vars.get('CONTROL_PLANE_PORT', '8800')}{Colors.RESET}")
-    print(f"  Support on Ko-fi: {Colors.YELLOW}https://ko-fi.com/E1E41CVWBU{Colors.RESET}\n")
+    print(f"  Bot Control Plane: {Colors.DIM}http://127.0.0.1:{env_vars.get('CONTROL_PLANE_PORT', '8800')}{Colors.RESET}\n")
 
     if is_daemon:
         print(f"To monitor logs: {Colors.BOLD}neverland logs -f{Colors.RESET}")
@@ -498,13 +496,13 @@ def cmd_stop(args):
     if bot_pid and is_process_running(bot_pid):
         kill_process_tree(bot_pid)
         if not quiet:
-            print(f"  {Colors.GREEN}✓ Discord Bot stopped (PID: {bot_pid}){Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Discord Bot stopped (PID: {bot_pid}){Colors.RESET}")
         stopped_any = True
 
     if dashboard_pid and is_process_running(dashboard_pid):
         kill_process_tree(dashboard_pid)
         if not quiet:
-            print(f"  {Colors.GREEN}✓ Web Dashboard stopped (PID: {dashboard_pid}){Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Web Dashboard stopped (PID: {dashboard_pid}){Colors.RESET}")
         stopped_any = True
 
     save_pids({})
@@ -512,7 +510,7 @@ def cmd_stop(args):
     if not stopped_any and not quiet:
         print(f"  {Colors.DIM}No running Neverland processes detected.{Colors.RESET}")
     elif not quiet:
-        print(f"\n{Colors.GREEN}All Neverland services stopped successfully.{Colors.RESET}")
+        print(f"\n{Colors.GREEN}[OK] All Neverland services stopped successfully.{Colors.RESET}")
 
 
 def cmd_restart(args):
@@ -552,8 +550,7 @@ def cmd_status(args):
     print(f"  Database Host:     {env_vars.get('MONGODB_URI', 'Not Configured').split('@')[-1]}")
     if pids.get("started_at"):
         print(f"  Uptime Started:    {pids.get('started_at')}")
-    print("----------------------------------------------------------------------")
-    print(f"Created with ❤️ by bitt-ar | Support on Ko-fi: https://ko-fi.com/E1E41CVWBU\n")
+    print("----------------------------------------------------------------------\n")
 
 
 # =====================================================================
@@ -727,42 +724,41 @@ def cmd_uninstall(args):
     # Clean runtime files
     if NEVERLAND_DIR.exists():
         shutil.rmtree(NEVERLAND_DIR, ignore_errors=True)
-        print(f"  {Colors.GREEN}✓ Removed .neverland runtime state & profiles{Colors.RESET}")
+        print(f"  {Colors.GREEN}[OK] Removed .neverland runtime state & profiles{Colors.RESET}")
 
     if BOT_ENV_FILE.exists():
         BOT_ENV_FILE.unlink(missing_ok=True)
-        print(f"  {Colors.GREEN}✓ Removed root .env file{Colors.RESET}")
+        print(f"  {Colors.GREEN}[OK] Removed root .env file{Colors.RESET}")
 
     if DASHBOARD_ENV_FILE.exists():
         DASHBOARD_ENV_FILE.unlink(missing_ok=True)
-        print(f"  {Colors.GREEN}✓ Removed dashboard/.env.local{Colors.RESET}")
+        print(f"  {Colors.GREEN}[OK] Removed dashboard/.env.local{Colors.RESET}")
 
     venv_dir = BASE_DIR / ".venv"
     if venv_dir.exists():
         print(f"  {Colors.YELLOW}Removing Python virtual environment...{Colors.RESET}")
         shutil.rmtree(venv_dir, ignore_errors=True)
-        print(f"  {Colors.GREEN}✓ Removed .venv{Colors.RESET}")
+        print(f"  {Colors.GREEN}[OK] Removed .venv{Colors.RESET}")
 
     next_dir = DASHBOARD_DIR / ".next"
     if next_dir.exists():
         shutil.rmtree(next_dir, ignore_errors=True)
-        print(f"  {Colors.GREEN}✓ Removed dashboard/.next cache{Colors.RESET}")
+        print(f"  {Colors.GREEN}[OK] Removed dashboard/.next cache{Colors.RESET}")
 
     # Remove shims
     if platform.system() == "Windows":
         shim_dir = Path.home() / ".neverland" / "bin"
         if shim_dir.exists():
             shutil.rmtree(shim_dir, ignore_errors=True)
-            print(f"  {Colors.GREEN}✓ Removed Windows CLI shims{Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Removed Windows CLI shims{Colors.RESET}")
     else:
         shim_file = Path.home() / ".local" / "bin" / "neverland"
         if shim_file.exists():
             shim_file.unlink(missing_ok=True)
-            print(f"  {Colors.GREEN}✓ Removed Linux/macOS CLI shim{Colors.RESET}")
+            print(f"  {Colors.GREEN}[OK] Removed Linux/macOS CLI shim{Colors.RESET}")
 
     print(f"\n{Colors.GREEN}{Colors.BOLD}Neverland has been completely uninstalled.{Colors.RESET}")
-    print(f"Thank you for using Neverland! Created with ❤️ by bitt-ar.")
-    print(f"Ko-fi: https://ko-fi.com/E1E41CVWBU\n")
+    print(f"Author: bitt-ar | https://github.com/bitt-ar/Neverland-bot\n")
 
 
 # =====================================================================
@@ -772,10 +768,10 @@ def cmd_uninstall(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="neverland",
-        description="Neverland All-in-One Discord Automation & Dashboard CLI | Created with ❤️ by bitt-ar (https://ko-fi.com/E1E41CVWBU)",
+        description="Neverland All-in-One Discord Automation & Web Dashboard CLI | Created by bitt-ar",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--version", "-v", action="version", version="Neverland CLI 1.0.0 (by bitt-ar | https://ko-fi.com/E1E41CVWBU)")
+    parser.add_argument("--version", "-v", action="version", version="Neverland CLI 1.0.0 (by bitt-ar)")
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 

@@ -1,14 +1,12 @@
 # ==============================================================================
-# Neverland Universal One-Command Installer (Windows PowerShell)
+# Neverland Universal Installer (Windows PowerShell)
 # Enterprise Discord Automation & Next.js 15 Web Dashboard
 #
-# Created with ❤️ by bitt-ar
-# Support on Ko-fi: https://ko-fi.com/E1E41CVWBU
+# Created by bitt-ar
 # ==============================================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Host.UI.RawUI.ForegroundColor = "Cyan"
 Write-Host @"
 
   _   _                     _                 _ 
@@ -16,10 +14,10 @@ Write-Host @"
  |  \| |/ _ \ \ / / _ \ '__| |/ _` | '_ \ / _` |
  | |\  |  __/\ V /  __/ |  | | (_| | | | | (_| |
  |_| \_|\___| \_/ \___|_|  |_|\__,_|_| |_|\__,_|
-"@
-$Host.UI.RawUI.ForegroundColor = "White"
+"@ -ForegroundColor Cyan
+
 Write-Host " Neverland Universal Installer for Windows" -ForegroundColor White
-Write-Host " Created with ❤️ by bitt-ar | Ko-fi: https://ko-fi.com/E1E41CVWBU" -ForegroundColor Yellow
+Write-Host " Created by bitt-ar | https://github.com/bitt-ar/Neverland-bot" -ForegroundColor Cyan
 Write-Host "----------------------------------------------------------------------`n"
 
 # 1. Determine Installation Target
@@ -38,7 +36,7 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
     Set-Location $InstallDir
 }
 
-# 2. Check / Install Python 3.11+
+# 2. Check Python 3.11+
 Write-Host "Checking Python 3.11+ installation..." -ForegroundColor Cyan
 $PythonExe = $null
 
@@ -51,7 +49,7 @@ foreach ($cmd in $PythonCandidates) {
             $minor = [int]($ver.Split('.')[1])
             if ($major -ge 3 -and $minor -ge 11) {
                 $PythonExe = $cmd
-                Write-Host "  ✓ Found compatible Python: $cmd ($ver)" -ForegroundColor Green
+                Write-Host "  [OK] Found compatible Python: $cmd ($ver)" -ForegroundColor Green
                 break
             }
         }
@@ -62,7 +60,6 @@ if (-not $PythonExe) {
     Write-Host "  Python 3.11+ not detected. Attempting to install via winget..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install -e --id Python.Python.3.11 --accept-package-agreements --accept-source-agreements
-        # Refresh environment PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         $PythonExe = "python"
     } else {
@@ -75,7 +72,7 @@ if (-not $PythonExe) {
 Write-Host "Checking Node.js..." -ForegroundColor Cyan
 if (Get-Command node -ErrorAction SilentlyContinue) {
     $nodeVer = & node -v
-    Write-Host "  ✓ Found Node.js: $nodeVer" -ForegroundColor Green
+    Write-Host "  [OK] Found Node.js: $nodeVer" -ForegroundColor Green
 } else {
     Write-Host "  Node.js not detected. Attempting to install via winget..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
@@ -113,7 +110,7 @@ if (Test-Path "$InstallDir\dashboard\package.json") {
 }
 
 # 6. Install Global CLI Command Shim
-Write-Host "`nRegistering 'neverland' global CLI command..." -ForegroundColor Cyan
+Write-Host "`nRegistering 'neverland' CLI command..." -ForegroundColor Cyan
 $BinDir = Join-Path $HOME ".neverland\bin"
 if (-not (Test-Path $BinDir)) {
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
@@ -122,7 +119,8 @@ if (-not (Test-Path $BinDir)) {
 $CmdShim = Join-Path $BinDir "neverland.cmd"
 $CmdContent = @"
 @echo off
-"$VenvPython" "$InstallDir\neverland.py" %*
+cd /d "$InstallDir"
+"$VenvPython" -m cli %*
 "@
 Set-Content -Path $CmdShim -Value $CmdContent -Encoding ASCII
 
@@ -131,18 +129,19 @@ $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$BinDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
     $env:Path = "$env:Path;$BinDir"
-    Write-Host "  ✓ Added $BinDir to User PATH." -ForegroundColor Green
+    Write-Host "  [OK] Added $BinDir to User PATH." -ForegroundColor Green
 }
 
-Write-Host "  ✓ 'neverland' command registered successfully." -ForegroundColor Green
+Write-Host "  [OK] 'neverland' command registered successfully." -ForegroundColor Green
 
 # 7. First-Run Trigger: Launch neverland config
 Write-Host "`n======================================================================" -ForegroundColor Cyan
-Write-Host "Installation successful! Launching the interactive configuration wizard..." -ForegroundColor Yellow
+Write-Host "Installation complete. Launching the interactive configuration wizard..." -ForegroundColor White
 Write-Host "======================================================================`n" -ForegroundColor Cyan
 
-& $VenvPython "$InstallDir\neverland.py" config
+Set-Location $InstallDir
+& $VenvPython -m cli config
 
 # 8. Auto-Start Trigger: Start Neverland services
-Write-Host "`nStarting Neverland for the first time..." -ForegroundColor Green
-& $VenvPython "$InstallDir\neverland.py" start
+Write-Host "`nStarting Neverland services..." -ForegroundColor Green
+& $VenvPython -m cli start

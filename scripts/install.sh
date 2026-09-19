@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Neverland Universal One-Command Installer (Linux & macOS)
+# Neverland Universal Installer (Linux & macOS)
 # Enterprise Discord Automation & Next.js 15 Web Dashboard
 #
-# Created with ❤️ by bitt-ar
-# Support on Ko-fi: https://ko-fi.com/E1E41CVWBU
+# Created with by bitt-ar
 # ==============================================================================
 
 set -e
 
-# Colors
+# ANSI Colors
 C_CYAN='\033[0;36m'
 C_GREEN='\033[0;32m'
 C_YELLOW='\033[1;33m'
@@ -26,10 +25,10 @@ cat << "EOF"
  |_| \_|\___| \_/ \___|_|  |_|\__,_|_| |_|\__,_|
 EOF
 echo -e "${C_RESET}${C_BOLD} Neverland Universal Installer (Linux & macOS)${C_RESET}"
-echo -e " ${C_YELLOW}Created with ❤️ by bitt-ar${C_RESET} | ${C_GREEN}Ko-fi: https://ko-fi.com/E1E41CVWBU${C_RESET}"
+echo -e " Created by bitt-ar | https://github.com/bitt-ar/Neverland-bot"
 echo -e "----------------------------------------------------------------------\n"
 
-# 1. Detect Environment & Installation Target
+# 1. Detect Installation Directory
 INSTALL_DIR="$PWD"
 if [ ! -f "$INSTALL_DIR/main.py" ] || [ ! -d "$INSTALL_DIR/dashboard" ]; then
     INSTALL_DIR="$HOME/Neverland-bot"
@@ -45,7 +44,7 @@ if [ ! -f "$INSTALL_DIR/main.py" ] || [ ! -d "$INSTALL_DIR/dashboard" ]; then
     cd "$INSTALL_DIR"
 fi
 
-# 2. Check / Install Python 3.11+
+# 2. Check Python 3.11+
 echo -e "${C_BOLD}Checking Python installation...${C_RESET}"
 PYTHON_BIN=""
 
@@ -56,14 +55,14 @@ for cmd in python3.12 python3.11 python3 python; do
         MINOR=$(echo "$VER" | cut -d. -f2)
         if [ "$MAJOR" -ge 3 ] && [ "$MINOR" -ge 11 ]; then
             PYTHON_BIN="$cmd"
-            echo -e "  ${C_GREEN}✓ Found compatible Python: $cmd ($VER)${C_RESET}"
+            echo -e "  [OK] Found compatible Python: $cmd ($VER)"
             break
         fi
     fi
 done
 
 if [ -z "$PYTHON_BIN" ]; then
-    echo -e "  ${C_YELLOW}Python 3.11+ not found. Attempting to install...${C_RESET}"
+    echo -e "  Python 3.11+ not found. Attempting package manager installation..."
     if [ "$(uname)" = "Darwin" ]; then
         if command -v brew >/dev/null 2>&1; then
             brew install python@3.11
@@ -87,19 +86,19 @@ if [ -z "$PYTHON_BIN" ]; then
         fi
         PYTHON_BIN="python3"
     else
-        echo -e "${C_RED}Please install Python 3.11+ using your package manager.${C_RESET}"
+        echo -e "${C_RED}Please install Python 3.11+ using your distribution package manager.${C_RESET}"
         exit 1
     fi
 fi
 
-# 3. Check Node.js & Package Manager
+# 3. Check Node.js
 echo -e "${C_BOLD}Checking Node.js & Dashboard prerequisites...${C_RESET}"
 if ! command -v node >/dev/null 2>&1; then
-    echo -e "  ${C_YELLOW}Node.js not detected. Please install Node.js 18+ to run the web dashboard.${C_RESET}"
-    echo -e "  Visit https://nodejs.org or run: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+    echo -e "  Node.js not detected. Please install Node.js 18+ to run the web dashboard."
+    echo -e "  Reference: https://nodejs.org"
 else
     NODE_VER=$(node -v)
-    echo -e "  ${C_GREEN}✓ Found Node.js: $NODE_VER${C_RESET}"
+    echo -e "  [OK] Found Node.js: $NODE_VER"
 fi
 
 PKG_RUNNER="npm"
@@ -109,7 +108,7 @@ elif command -v npm >/dev/null 2>&1; then
     PKG_RUNNER="npm"
 fi
 
-# 4. Set up Python Virtual Environment
+# 4. Set up Virtual Environment
 echo -e "\n${C_BOLD}Setting up Python environment...${C_RESET}"
 if [ ! -d ".venv" ]; then
     "$PYTHON_BIN" -m venv .venv
@@ -130,7 +129,7 @@ if [ -d "dashboard" ] && [ -f "dashboard/package.json" ]; then
     cd "$INSTALL_DIR"
 fi
 
-# 6. Install Global CLI Shim
+# 6. Install Global CLI Command Shim
 echo -e "\n${C_BOLD}Installing 'neverland' CLI command...${C_RESET}"
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
@@ -139,7 +138,8 @@ SHIM_FILE="$BIN_DIR/neverland"
 cat << EOF > "$SHIM_FILE"
 #!/usr/bin/env bash
 export NEVERLAND_HOME="$INSTALL_DIR"
-exec "$VENV_PYTHON" "$INSTALL_DIR/neverland.py" "\$@"
+cd "$INSTALL_DIR"
+exec "$VENV_PYTHON" -m cli "\$@"
 EOF
 chmod +x "$SHIM_FILE"
 
@@ -153,15 +153,16 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     export PATH="$BIN_DIR:$PATH"
 fi
 
-echo -e "${C_GREEN}✓ 'neverland' CLI command installed to $SHIM_FILE${C_RESET}"
+echo -e "  [OK] 'neverland' CLI command installed to $SHIM_FILE"
 
 # 7. First-Run Trigger: Launch neverland config
 echo -e "\n${C_CYAN}${C_BOLD}======================================================================${C_RESET}"
-echo -e "${C_BOLD}Installation successful! Launching the interactive configuration wizard...${C_RESET}"
+echo -e "${C_BOLD}Installation complete. Launching the interactive configuration wizard...${C_RESET}"
 echo -e "${C_CYAN}${C_BOLD}======================================================================${C_RESET}\n"
 
-"$VENV_PYTHON" "$INSTALL_DIR/neverland.py" config
+cd "$INSTALL_DIR"
+"$VENV_PYTHON" -m cli config
 
 # 8. Auto-Start Trigger: Start Neverland services
-echo -e "\n${C_BOLD}Starting Neverland for the first time...${C_RESET}"
-"$VENV_PYTHON" "$INSTALL_DIR/neverland.py" start
+echo -e "\n${C_BOLD}Starting Neverland...${C_RESET}"
+"$VENV_PYTHON" -m cli start
