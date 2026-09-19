@@ -37,14 +37,8 @@ Thank you for your interest in contributing to Neverland! Neverland is an open-s
 - `bot/` & `cogs/`: Discord bot cogs, event listeners, and slash commands.
 - `core/`: Database connections (MongoDB), shared configuration, and schemas.
 - `dashboard/`: Next.js 15 web dashboard with Supabase-dark theme and real-time control plane.
-- `cli/`: Neverland unified CLI (`neverland config`, `start`, `stop`, `status`, `uninstall`, `domain`).
-- `install.sh` / `install.ps1`: Cross-platform one-line installers.
-
-## Code of Conduct
-
-All contributors and maintainers are expected to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md).
+- `scripts/`: Cross-platform installation and setup scripts.
 
 ## Support the Creator
 
-If you appreciate Neverland and want to support its ongoing development:
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E1E41CVWBU)
+Support ongoing development via [Ko-fi](https://ko-fi.com/E1E41CVWBU).
