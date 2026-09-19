@@ -2142,15 +2142,15 @@ def create_app(bot) -> web.Application:
         # Custom Commands endpoints
         app.router.add_get(f"{prefix}/custom-commands", custom_commands_list_handler)
         app.router.add_post(f"{prefix}/custom-commands", custom_command_post_handler)
-        app.router.add_put(f"{prefix}/custom-commands/{{id}}", custom_command_put_handler)
-        app.router.add_delete(f"{prefix}/custom-commands/{{id}}", custom_command_delete_handler)
+        app.router.add_put(f"{prefix}/custom-commands/{{cmd_id}}", custom_command_put_handler)
+        app.router.add_delete(f"{prefix}/custom-commands/{{cmd_id}}", custom_command_delete_handler)
 
         # Custom Dropdowns endpoints
         app.router.add_get(f"{prefix}/custom-dropdowns", custom_dropdowns_list_handler)
         app.router.add_post(f"{prefix}/custom-dropdowns", custom_dropdown_post_handler)
-        app.router.add_put(f"{prefix}/custom-dropdowns/{{id}}", custom_dropdown_put_handler)
-        app.router.add_delete(f"{prefix}/custom-dropdowns/{{id}}", custom_dropdown_delete_handler)
-        app.router.add_post(f"{prefix}/custom-dropdowns/{{id}}/publish", custom_dropdown_publish_handler)
+        app.router.add_put(f"{prefix}/custom-dropdowns/{{dd_id}}", custom_dropdown_put_handler)
+        app.router.add_delete(f"{prefix}/custom-dropdowns/{{dd_id}}", custom_dropdown_delete_handler)
+        app.router.add_post(f"{prefix}/custom-dropdowns/{{dd_id}}/publish", custom_dropdown_publish_handler)
 
     app.router.add_get("/modules", modules_list_handler)
 
