@@ -35,6 +35,15 @@ async def init():
     await db.custom_commands.create_index([("guild_id", ASCENDING), ("name", ASCENDING)])
     await db.custom_dropdowns.create_index([("guild_id", ASCENDING), ("id", ASCENDING)])
     await db.custom_dropdowns.create_index([("message_id", ASCENDING)])
+    await db.radio_configs.create_index([("guild_id", ASCENDING)], unique=True)
+    await db.radio_bots.create_index([("guild_id", ASCENDING), ("bot_slot", ASCENDING)], unique=True)
+    await db.radio_playlists.create_index([("guild_id", ASCENDING), ("id", ASCENDING)], unique=True)
+    await db.radio_playlists.create_index([("guild_id", ASCENDING)])
+    await db.radio_tracks.create_index([("guild_id", ASCENDING), ("playlist_id", ASCENDING), ("id", ASCENDING)], unique=True)
+    await db.radio_tracks.create_index([("guild_id", ASCENDING), ("playlist_id", ASCENDING)])
+    await db.radio_active_streams.create_index([("guild_id", ASCENDING), ("bot_slot", ASCENDING)], unique=True)
+    await db.custom_temp_voice_channels.create_index([("channel_id", ASCENDING)], unique=True)
+    await db.custom_temp_voice_channels.create_index([("guild_id", ASCENDING)])
 
 
 async def close():
@@ -183,3 +192,233 @@ async def delete_message_reaction_roles(message_id: int | str):
         id_filter.append(int(msg_id_str))
     await db.reaction_roles.delete_many({"message_id": {"$in": id_filter}})
     await reload_reaction_roles()
+
+
+# --- Radio & Multi-Bot Broadcasting Database Operations ---
+
+async def sync_radio_storage_quota(owner_max_mb: int):
+    """Sync the Bot Owner's configured storage quota from .env to the database across all guild configs."""
+    if db is None:
+        return
+    # 1. Update system global config document
+    await db.system_config.update_one(
+        {"_id": "radio_storage"},
+        {"$set": {"max_playlist_storage_mb": int(owner_max_mb)}},
+        upsert=True,
+    )
+    # 2. Update existing guild radio configs to align with bot owner's quota
+    await db.radio_configs.update_many(
+        {},
+        {"$set": {"max_playlist_storage_mb": int(owner_max_mb)}},
+    )
+
+
+async def get_radio_config(guild_id: int | str) -> dict:
+    gid_str = str(guild_id)
+    doc = await db.radio_configs.find_one({"guild_id": gid_str})
+    owner_limit = getattr(config, "RADIO_MAX_PLAYLIST_STORAGE_MB", 100)
+    if not doc:
+        return {
+            "guild_id": gid_str,
+            "max_playlist_storage_mb": owner_limit,
+            "default_volume": 100,
+            "owner_enforced": True,
+        }
+    doc.pop("_id", None)
+    # Enforce owner-configured limit from .env
+    doc["max_playlist_storage_mb"] = owner_limit
+    doc["owner_enforced"] = True
+    return doc
+
+
+async def update_radio_config(guild_id: int | str, **fields) -> dict:
+    gid_str = str(guild_id)
+    # Never allow server admins to overwrite bot owner's system storage quota
+    fields.pop("max_playlist_storage_mb", None)
+    if fields:
+        await db.radio_configs.update_one(
+            {"guild_id": gid_str},
+            {"$set": fields},
+            upsert=True,
+        )
+    return await get_radio_config(guild_id)
+
+
+async def get_radio_bots(guild_id: int | str) -> list[dict]:
+    gid_str = str(guild_id)
+    cursor = db.radio_bots.find({"guild_id": gid_str}).sort("bot_slot", ASCENDING)
+    bots = await cursor.to_list(length=10)
+    for b in bots:
+        b.pop("_id", None)
+    return bots
+
+
+async def get_radio_bot(guild_id: int | str, bot_slot: int) -> dict | None:
+    gid_str = str(guild_id)
+    doc = await db.radio_bots.find_one({"guild_id": gid_str, "bot_slot": bot_slot})
+    if doc:
+        doc.pop("_id", None)
+    return doc
+
+
+async def save_radio_bot(guild_id: int | str, bot_slot: int, doc: dict):
+    gid_str = str(guild_id)
+    payload = dict(doc)
+    payload["guild_id"] = gid_str
+    payload["bot_slot"] = int(bot_slot)
+    await db.radio_bots.update_one(
+        {"guild_id": gid_str, "bot_slot": int(bot_slot)},
+        {"$set": payload},
+        upsert=True,
+    )
+
+
+async def delete_radio_bot(guild_id: int | str, bot_slot: int):
+    gid_str = str(guild_id)
+    await db.radio_bots.delete_one({"guild_id": gid_str, "bot_slot": int(bot_slot)})
+
+
+async def get_radio_playlists(guild_id: int | str) -> list[dict]:
+    gid_str = str(guild_id)
+    cursor = db.radio_playlists.find({"guild_id": gid_str}).sort("created_at", ASCENDING)
+    playlists = await cursor.to_list(length=10)
+    for p in playlists:
+        p.pop("_id", None)
+    return playlists
+
+
+async def get_radio_playlist(guild_id: int | str, playlist_id: str) -> dict | None:
+    gid_str = str(guild_id)
+    doc = await db.radio_playlists.find_one({"guild_id": gid_str, "id": str(playlist_id)})
+    if doc:
+        doc.pop("_id", None)
+    return doc
+
+
+async def save_radio_playlist(guild_id: int | str, doc: dict):
+    gid_str = str(guild_id)
+    payload = dict(doc)
+    payload["guild_id"] = gid_str
+    await db.radio_playlists.update_one(
+        {"guild_id": gid_str, "id": str(payload["id"])},
+        {"$set": payload},
+        upsert=True,
+    )
+
+
+async def delete_radio_playlist(guild_id: int | str, playlist_id: str):
+    gid_str = str(guild_id)
+    pid_str = str(playlist_id)
+    await db.radio_playlists.delete_one({"guild_id": gid_str, "id": pid_str})
+    await db.radio_tracks.delete_many({"guild_id": gid_str, "playlist_id": pid_str})
+
+
+async def get_radio_tracks(guild_id: int | str, playlist_id: str) -> list[dict]:
+    gid_str = str(guild_id)
+    pid_str = str(playlist_id)
+    cursor = db.radio_tracks.find({"guild_id": gid_str, "playlist_id": pid_str}).sort("order", ASCENDING)
+    tracks = await cursor.to_list(length=200)
+    for t in tracks:
+        t.pop("_id", None)
+    return tracks
+
+
+async def add_radio_track(guild_id: int | str, playlist_id: str, track_doc: dict):
+    gid_str = str(guild_id)
+    pid_str = str(playlist_id)
+    payload = dict(track_doc)
+    payload["guild_id"] = gid_str
+    payload["playlist_id"] = pid_str
+    await db.radio_tracks.update_one(
+        {"guild_id": gid_str, "playlist_id": pid_str, "id": str(payload["id"])},
+        {"$set": payload},
+        upsert=True,
+    )
+
+
+async def delete_radio_track(guild_id: int | str, playlist_id: str, track_id: str) -> dict | None:
+    gid_str = str(guild_id)
+    pid_str = str(playlist_id)
+    tid_str = str(track_id)
+    track = await db.radio_tracks.find_one_and_delete(
+        {"guild_id": gid_str, "playlist_id": pid_str, "id": tid_str}
+    )
+    if track:
+        track.pop("_id", None)
+    return track
+
+
+async def get_active_stream(guild_id: int | str, bot_slot: int) -> dict | None:
+    gid_str = str(guild_id)
+    doc = await db.radio_active_streams.find_one({"guild_id": gid_str, "bot_slot": int(bot_slot)})
+    if doc:
+        doc.pop("_id", None)
+    return doc
+
+
+async def get_all_active_streams(guild_id: int | str) -> list[dict]:
+    gid_str = str(guild_id)
+    cursor = db.radio_active_streams.find({"guild_id": gid_str})
+    streams = await cursor.to_list(length=10)
+    for s in streams:
+        s.pop("_id", None)
+    return streams
+
+
+async def update_active_stream(guild_id: int | str, bot_slot: int, doc: dict):
+    gid_str = str(guild_id)
+    payload = dict(doc)
+    payload["guild_id"] = gid_str
+    payload["bot_slot"] = int(bot_slot)
+    await db.radio_active_streams.update_one(
+        {"guild_id": gid_str, "bot_slot": int(bot_slot)},
+        {"$set": payload},
+        upsert=True,
+    )
+
+
+async def clear_active_stream(guild_id: int | str, bot_slot: int):
+    gid_str = str(guild_id)
+    await db.radio_active_streams.delete_one({"guild_id": gid_str, "bot_slot": int(bot_slot)})
+
+
+DEFAULT_BOT_PRESENCE = {
+    "status": "idle",
+    "activity_type": "custom",
+    "activity_name": "At your service",
+    "streaming_url": "",
+}
+
+
+async def get_bot_presence() -> dict:
+    if db is None:
+        return dict(DEFAULT_BOT_PRESENCE)
+    doc = await db.system_config.find_one({"_id": "bot_presence"})
+    if not doc:
+        return dict(DEFAULT_BOT_PRESENCE)
+    doc.pop("_id", None)
+    return {
+        "status": doc.get("status", "idle"),
+        "activity_type": doc.get("activity_type", "custom"),
+        "activity_name": doc.get("activity_name", "At your service"),
+        "streaming_url": doc.get("streaming_url", ""),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
+async def save_bot_presence(presence_data: dict) -> dict:
+    if db is None:
+        return presence_data
+    payload = {
+        "status": presence_data.get("status", "idle"),
+        "activity_type": presence_data.get("activity_type", "custom"),
+        "activity_name": presence_data.get("activity_name", "At your service"),
+        "streaming_url": presence_data.get("streaming_url", ""),
+        "updated_at": presence_data.get("updated_at"),
+    }
+    await db.system_config.update_one(
+        {"_id": "bot_presence"},
+        {"$set": payload},
+        upsert=True,
+    )
+    return payload

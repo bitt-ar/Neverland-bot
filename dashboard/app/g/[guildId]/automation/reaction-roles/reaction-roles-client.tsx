@@ -34,7 +34,6 @@ import { cn, stripEmojis } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +55,7 @@ import {
   resolveChannelName,
   resolveRoleName,
 } from "@/components/saved-state-strip";
+import ReactionRolesLoading from "./loading";
 
 interface ReactionRolesClientProps {
   guildId: string;
@@ -480,32 +480,7 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
 
   // Render Loading State
   if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">Reaction Roles</h1>
-            <p className="text-sm text-muted-foreground">
-              Loading configured reaction role messages...
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="border border-border/80">
-              <CardHeader className="pb-3">
-                <Skeleton className="h-5 w-32" />
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-8 w-full mt-4" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <ReactionRolesLoading />;
   }
 
   // Render Error State
@@ -546,12 +521,9 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/50 pb-5">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Tags className="size-4" />
-            </div>
             <h1 className="text-2xl font-bold tracking-tight">Reaction Roles</h1>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Configure automated role assignment via Discord reactions, buttons, or select dropdowns.
           </p>
         </div>

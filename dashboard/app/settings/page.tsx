@@ -1,9 +1,10 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { Activity, CheckCircle2, Cpu, KeyRound, XCircle } from "lucide-react";
+import Link from "next/link";
+import { Activity, CheckCircle2, Cpu, KeyRound, Radio, XCircle } from "lucide-react";
 
 import pkg from "../../package.json";
-import { getHealth, HealthResponse } from "@/lib/control-plane";
+import { getHealth, HealthResponse, getBotPresence } from "@/lib/control-plane";
 import { getDevAdminIds, isAuthEnabled, checkAdminAccess, SESSION_COOKIE } from "@/lib/auth";
 import {
   Card,
@@ -40,6 +41,13 @@ export default async function SettingsPage() {
     health = await getHealth();
   } catch {
     health = null;
+  }
+
+  let presence = null;
+  try {
+    presence = await getBotPresence();
+  } catch {
+    presence = null;
   }
 
   const isControlPlaneOnline = health?.status === "ok";
@@ -195,6 +203,63 @@ export default async function SettingsPage() {
               <Badge variant="secondary" className="font-normal text-[11px] shrink-0">
                 {adminIdsConfigured ? "Configured" : "Unset (app owner used)"}
               </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card: Bot Presence & Status (Owner Only) */}
+        <Card className="border border-border/80 md:col-span-2">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <Radio className="size-4 text-primary" />
+                <CardTitle className="text-base font-semibold">Bot Presence & Status</CardTitle>
+                <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10 text-[10px] font-mono">
+                  Owner Only
+                </Badge>
+              </div>
+              <CardDescription className="mt-1">
+                Discord Gateway status indicator and live rich activity message.
+              </CardDescription>
+            </div>
+            <Link
+              href="/settings/presence"
+              className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 h-8 px-3 transition-colors"
+            >
+              Configure Status & Activity &rarr;
+            </Link>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="rounded-md border border-border/50 bg-muted/15 p-3 space-y-1">
+              <div className="text-[11px] text-muted-foreground font-mono uppercase">Presence Status</div>
+              <div className="flex items-center gap-2 font-medium text-sm text-foreground">
+                <span
+                  className={`size-2.5 rounded-full ${
+                    presence?.status === "online"
+                      ? "bg-emerald-500"
+                      : presence?.status === "idle"
+                      ? "bg-amber-400"
+                      : presence?.status === "dnd"
+                      ? "bg-red-500"
+                      : "bg-zinc-400"
+                  }`}
+                />
+                <span className="capitalize">{presence?.status || "Idle"}</span>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/50 bg-muted/15 p-3 space-y-1">
+              <div className="text-[11px] text-muted-foreground font-mono uppercase">Activity Type</div>
+              <div className="font-semibold text-sm text-foreground capitalize">
+                {presence?.activity_type || "Custom"}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/50 bg-muted/15 p-3 space-y-1">
+              <div className="text-[11px] text-muted-foreground font-mono uppercase">Active Text</div>
+              <div className="font-medium text-sm text-foreground truncate">
+                &ldquo;{presence?.activity_name || "At your service"}&rdquo;
+              </div>
             </div>
           </CardContent>
         </Card>

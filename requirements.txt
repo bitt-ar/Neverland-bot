@@ -1,7 +1,7 @@
 discord.py>=2.7.1
 davey
 Pillow
-requests
+cryptography>=41.0.0
 PyNaCl
 python-dotenv
 motor

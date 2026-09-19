@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core import database
+from core.permissions import check_command_permission
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +15,13 @@ class SetupCog(commands.Cog):
         self.bot = bot
 
     async def _check_admin(self, interaction: discord.Interaction) -> bool:
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-            return False
-        if interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id:
-            return True
-        await interaction.response.send_message("⛔ You need Administrator permissions to use this command.", ephemeral=True)
-        return False
+        return await check_command_permission(
+            self.bot,
+            interaction,
+            command_name="setup",
+            default_admin_only=True,
+            fallback_perm="administrator",
+        )
 
     setup = app_commands.Group(
         name="setup",

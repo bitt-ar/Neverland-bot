@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.control.server import start_control_plane, stop_control_plane, memory_log_handler
+from bot.control.server import start_control_plane, stop_control_plane, memory_log_handler, apply_bot_presence
 from core import config, database
 
 logging.basicConfig(level=logging.INFO)
@@ -58,7 +58,13 @@ async def main():
 async def on_ready():
     logging.info("Discord Gateway Connected: Logged in as %s (ID: %s)", bot.user, bot.user.id)
     logging.info("Bot is active across %d servers on Discord", len(bot.guilds))
-    await bot.change_presence(status=discord.Status.idle, activity=discord.Game("At your service"))
+    try:
+        presence_doc = await database.get_bot_presence()
+        await apply_bot_presence(bot, presence_doc)
+        logging.info("Applied bot presence: %s (%s: %s)", presence_doc.get("status"), presence_doc.get("activity_type"), presence_doc.get("activity_name"))
+    except Exception as pe:
+        logging.warning("Failed loading stored presence, falling back to default: %s", pe)
+        await bot.change_presence(status=discord.Status.idle, activity=discord.Game("At your service"))
 
     # Automatic Slash Command Sync (Eliminates duplicates by clearing guild-level copies)
     try:

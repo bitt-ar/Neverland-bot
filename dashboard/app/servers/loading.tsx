@@ -1,26 +1,11 @@
-import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 export default function ServersLoading() {
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-4 w-72" />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Card key={i} className="border border-border/80">
-            <CardHeader className="pb-2">
-              <Skeleton className="h-10 w-full" />
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Skeleton className="h-8 w-36" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
+    <PageLoadingSkeleton
+      title="Servers"
+      description="Loading connected Discord servers and administrator access..."
+      count={4}
+    />
   );
 }

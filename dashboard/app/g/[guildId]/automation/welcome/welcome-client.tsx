@@ -4,7 +4,6 @@ import * as React from "react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
-  DoorOpen,
   AlertTriangle,
   RefreshCw,
   Save,
@@ -347,17 +346,16 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
   return (
     <div className="space-y-6 min-w-0">
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
-            <DoorOpen className="size-6 text-primary shrink-0" />
-            <h1 className="text-2xl font-bold tracking-tight">Welcome</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Welcome</h1>
             <Badge
               variant="outline"
               className={
                 enabled
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs"
-                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
               }
             >
               {enabled ? "Active" : "Disabled"}
@@ -369,24 +367,28 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
         </div>
 
         {/* Header Controls */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
           {isDirty && (
             <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleDiscardChanges}
                 disabled={isSaving}
-                className="h-8 text-xs"
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
               >
-                <RotateCcw className="size-3.5 mr-1 text-muted-foreground" />
+                <RotateCcw className="size-3.5 mr-1" />
                 <span>Discard</span>
               </Button>
               <Button
                 size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="h-8 text-xs shadow-xs"
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
               >
                 <Save className="size-3.5 mr-1" />
                 <span>{isSaving ? "Saving..." : "Save Changes"}</span>
@@ -428,12 +430,6 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base font-semibold">Channel & Image Options</CardTitle>
-              {isDirty && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-medium">
-                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  Unsaved changes
-                </span>
-              )}
             </div>
             <CardDescription>
               Select where arrival messages are posted and whether server-side PIL images are generated.
@@ -441,7 +437,7 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
           </CardHeader>
 
           <CardContent className="space-y-5">
-            {/* Always-Visible Saved State Strip */}
+            {/* Always-Visible Saved State Strip without duplicate buttons */}
             <SavedStateStrip
               items={[
                 {
@@ -457,10 +453,7 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
                   value: savedConfig.include_image ? "Enabled" : "Disabled",
                 },
               ]}
-              isDirty={isDirty}
               isSaving={isSaving}
-              onSave={handleSave}
-              onDiscard={handleDiscardChanges}
             />
 
             {/* Channel Select */}
@@ -527,41 +520,13 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
               </div>
             </div>
           </CardContent>
-
-          {isDirty && (
-            <CardFooter className="border-t border-border/60 bg-muted/20 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs text-muted-foreground">You have unsaved changes</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDiscardChanges}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  Discard
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  {isSaving ? "Saving..." : "Save Changes"}
-                </Button>
-              </div>
-            </CardFooter>
-          )}
         </Card>
 
         {/* Card 2: Static Informational Preview Card */}
         <Card className="border border-border/80">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <ImageIcon className="size-4 text-muted-foreground" />
-                <CardTitle className="text-base font-semibold">Welcome Card Attachment</CardTitle>
-              </div>
+              <CardTitle className="text-base font-semibold">Welcome Card Attachment</CardTitle>
               <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/80">
                 Generated server-side with PIL
               </Badge>
@@ -768,31 +733,6 @@ export function WelcomeClient({ guildId }: WelcomeClientProps) {
               </div>
             </div>
           </CardContent>
-
-          {isDirty && (
-            <CardFooter className="border-t border-border/60 bg-muted/20 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs text-muted-foreground">You have unsaved changes</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDiscardChanges}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  Discard
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  {isSaving ? "Saving..." : "Save Changes"}
-                </Button>
-              </div>
-            </CardFooter>
-          )}
         </Card>
       </div>
     </div>

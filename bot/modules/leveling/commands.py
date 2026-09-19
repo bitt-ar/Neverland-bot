@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from core import config, database
 from core.images import circle, fetch_image_bytes, load_background_image, validate_and_save_background
+from core.permissions import check_command_permission
 
 logger = logging.getLogger(__name__)
 
@@ -158,14 +159,14 @@ class LevelingCommandsCog(commands.Cog):
             return False
         return True
 
-    async def _check_admin(self, interaction: discord.Interaction) -> bool:
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-            return False
-        if interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id:
-            return True
-        await interaction.response.send_message("⛔ You need Administrator permissions to use this command.", ephemeral=True)
-        return False
+    async def _check_admin(self, interaction: discord.Interaction, command_name: str = "levelroles") -> bool:
+        return await check_command_permission(
+            self.bot,
+            interaction,
+            command_name=command_name,
+            default_admin_only=True,
+            fallback_perm="administrator",
+        )
 
     levelroles = app_commands.Group(
         name="levelroles",
@@ -404,7 +405,7 @@ class LevelingCommandsCog(commands.Cog):
         amount: app_commands.Range[int, 1, 100000],
         member: discord.Member,
     ):
-        if not await self._check_admin(interaction) or not await self._check_enabled(interaction):
+        if not await self._check_admin(interaction, "xp") or not await self._check_enabled(interaction):
             return
         if member.bot:
             await interaction.response.send_message("You can't give XP to bots.", ephemeral=True)

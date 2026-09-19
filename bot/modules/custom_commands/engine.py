@@ -9,7 +9,10 @@ import discord
 from discord.ext import commands
 
 from bot.modules.custom_commands.workflow import WorkflowRunner
-from bot.modules.custom_commands.actions.channels import cleanup_empty_custom_voice_channels
+from bot.modules.custom_commands.actions.channels import (
+    cleanup_empty_custom_voice_channels,
+    restore_persistent_temp_voice_channels,
+)
 from bot.modules.tickets.helpers import sanitize_button_emoji
 from core import database
 
@@ -81,14 +84,43 @@ class CustomCommandsEngineCog(commands.Cog):
         self.module = module
         # Cooldown map: (guild_id, user_id, command_id) -> expiration_timestamp
         self._cooldowns: dict[tuple[int, int, str], float] = {}
+        # In-memory command cache: guild_id -> (timestamp, list of commands) (N-M4)
+        self._command_cache: dict[int, tuple[float, list[dict]]] = {}
+        self._cache_ttl: float = 30.0
 
     @property
     def registry(self):
         return getattr(self.bot, "modules_registry", None)
 
+    def invalidate_command_cache(self, guild_id: int | str):
+        """Invalidates in-memory custom commands cache for a guild."""
+        try:
+            self._command_cache.pop(int(guild_id), None)
+        except Exception:
+            pass
+
+    async def get_commands_for_guild(self, guild_id: int) -> list[dict]:
+        """Fetch enabled custom commands with in-memory TTL caching to prevent DB DoS."""
+        now = time.time()
+        cached = self._command_cache.get(guild_id)
+        if cached and (now - cached[0] < self._cache_ttl):
+            return cached[1]
+
+        if database.db is None:
+            return []
+
+        cursor = database.db.custom_commands.find({
+            "guild_id": {"$in": [guild_id, str(guild_id)]},
+            "enabled": True,
+        })
+        commands_list = await cursor.to_list(length=100)
+        self._command_cache[guild_id] = (now, commands_list)
+        return commands_list
+
     async def cog_load(self):
-        """Restore all published dropdown menus from the database on bot startup."""
+        """Restore all published dropdown menus and active temp voice channels from the database on bot startup."""
         await self._restore_persistent_dropdowns()
+        await restore_persistent_temp_voice_channels(self.bot)
 
     async def _restore_persistent_dropdowns(self):
         if database.db is None:
@@ -211,12 +243,8 @@ class CustomCommandsEngineCog(commands.Cog):
         prefix = config.get("prefix", "!")
         delete_default = bool(config.get("delete_trigger_default", False))
 
-        # Query all enabled custom commands for this guild
-        cursor = database.db.custom_commands.find({
-            "guild_id": {"$in": [guild_id, str(guild_id)]},
-            "enabled": True,
-        })
-        commands_list = await cursor.to_list(length=100)
+        # Query enabled custom commands using in-memory cached list (N-M4)
+        commands_list = await self.get_commands_for_guild(guild_id)
         if not commands_list:
             return
 
@@ -292,6 +320,8 @@ class CustomCommandsEngineCog(commands.Cog):
                         pass
                     return
                 self._cooldowns[cd_key] = now
+                if len(self._cooldowns) > 500:
+                    self._cooldowns = {k: v for k, v in self._cooldowns.items() if v + 300 > now}
 
             # Delete trigger message if configured
             if delete_default:

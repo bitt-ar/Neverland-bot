@@ -331,6 +331,8 @@ export interface WorkflowAction {
   name?: string;
   category_id?: string | null;
   user_limit?: number;
+  inherit_category_permissions?: boolean;
+  empty_timeout?: number;
   duration_minutes?: number;
   reason?: string;
   delete_days?: number;
@@ -398,5 +400,32 @@ export async function getCustomCommands(guildId: string): Promise<CommandDefinit
 
 export async function getCustomDropdowns(guildId: string): Promise<DropdownDefinition[]> {
   return fetchControlPlane<DropdownDefinition[]>(`/guilds/${guildId}/custom-dropdowns`);
+}
+
+export interface BotPresence {
+  status: "online" | "idle" | "dnd" | "invisible";
+  activity_type: "custom" | "playing" | "streaming" | "listening" | "watching" | "competing" | "none";
+  activity_name: string;
+  streaming_url?: string;
+  updated_at?: string;
+  guild_count?: number;
+  member_count?: number;
+  applied_live?: boolean;
+}
+
+export async function getBotPresence(): Promise<BotPresence> {
+  return fetchControlPlane<BotPresence>("/bot/presence");
+}
+
+export async function updateBotPresence(presence: Partial<BotPresence>): Promise<BotPresence> {
+  return fetchControlPlane<BotPresence>("/bot/presence", {
+    init: {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(presence),
+    },
+  });
 }
 

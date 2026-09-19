@@ -134,8 +134,10 @@ async function proxyRequest(
   const fullUrl = `${cleanBase}/${targetPath}${queryString ? `?${queryString}` : ""}`;
 
   try {
+    const isUpload = targetPath.includes("upload");
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutMs = isUpload ? 120000 : 8000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const headers: Record<string, string> = {
       "X-Internal-Secret": secret,
@@ -146,14 +148,23 @@ async function proxyRequest(
       headers["X-User-Id"] = user.id;
     }
 
-    let body: string | undefined = undefined;
+    const contentType = request.headers.get("content-type");
+    let body: BodyInit | undefined = undefined;
+
     if (["POST", "PUT", "PATCH"].includes(method)) {
-      headers["Content-Type"] = "application/json";
-      try {
-        const json = await request.json();
-        body = JSON.stringify(json);
-      } catch {
-        // empty body
+      if (contentType && contentType.toLowerCase().includes("multipart/form-data")) {
+        const buffer = await request.arrayBuffer();
+        headers["Content-Type"] = contentType;
+        headers["Content-Length"] = String(buffer.byteLength);
+        body = buffer;
+      } else {
+        headers["Content-Type"] = "application/json";
+        try {
+          const json = await request.json();
+          body = JSON.stringify(json);
+        } catch {
+          // empty body
+        }
       }
     }
 

@@ -19,7 +19,6 @@ import {
   User,
   Shield,
   Tag,
-  Hash,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -494,12 +493,19 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
   return (
     <div className="space-y-8">
       {/* Header & Status Toggle */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight">Tickets</h1>
-            <Badge variant={enabled ? "default" : "secondary"} className="text-xs">
-              {enabled ? "Module Active" : "Disabled"}
+            <Badge
+              variant="outline"
+              className={
+                enabled
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
+              }
+            >
+              {enabled ? "Active" : "Disabled"}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -507,16 +513,49 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Label htmlFor="tickets-toggle" className="text-xs text-muted-foreground cursor-pointer">
-            {enabled ? "Module is enabled" : "Module is disabled"}
-          </Label>
-          <Switch
-            id="tickets-toggle"
-            checked={enabled}
-            disabled={isTogglingState}
-            onCheckedChange={handleToggleEnabled}
-          />
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
+          {isDirty && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDiscardChanges}
+                disabled={isSaving}
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RotateCcw className="size-3.5 mr-1" />
+                <span>Discard</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveConfig}
+                disabled={isSaving}
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
+              >
+                <Save className="size-3.5 mr-1" />
+                <span>{isSaving ? "Saving..." : "Save Changes"}</span>
+              </Button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-1.5 shadow-2xs">
+            <Label
+              htmlFor="tickets-toggle"
+              className="text-xs font-medium cursor-pointer text-foreground"
+            >
+              {enabled ? "Module Enabled" : "Module Disabled"}
+            </Label>
+            <Switch
+              id="tickets-toggle"
+              checked={enabled}
+              disabled={isTogglingState}
+              onCheckedChange={handleToggleEnabled}
+            />
+          </div>
         </div>
       </div>
 
@@ -527,8 +566,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
           <Card className="border border-border/80 shadow-xs">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Ticket className="size-4 text-primary" />
+                <CardTitle className="text-base font-semibold">
                   Panel Settings
                 </CardTitle>
                 {isDirty && (
@@ -592,10 +630,6 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
                     value: `${savedConfig.categories?.length || 0} configured`,
                   },
                 ]}
-                isDirty={isDirty}
-                isSaving={isSaving}
-                onSave={handleSaveConfig}
-                onDiscard={handleDiscardChanges}
               />
 
               {/* Target Channel */}
@@ -851,8 +885,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <Shield className="size-4 text-primary" />
+                  <CardTitle className="text-base font-semibold">
                     Ticket Categories
                   </CardTitle>
                   <CardDescription>
@@ -1063,25 +1096,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
               })}
             </CardContent>
 
-            <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-4">
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleSaveConfig}
-                  disabled={!isDirty || isSaving}
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <Save className="size-3.5" />
-                  {isSaving ? "Saving..." : "Save Changes"}
-                </Button>
-                {isDirty && (
-                  <Button variant="ghost" size="sm" onClick={handleDiscardChanges}>
-                    <RotateCcw className="size-3.5 mr-1" />
-                    Discard
-                  </Button>
-                )}
-              </div>
-
+            <CardFooter className="flex justify-end border-t border-border/50 pt-4">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1100,8 +1115,7 @@ export function TicketsClient({ guildId }: TicketsClientProps) {
         <div className="lg:col-span-5 space-y-6">
           <Card className="border border-border/80 shadow-xs">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Hash className="size-4 text-primary" />
+              <CardTitle className="text-base font-semibold">
                 Discord Panel Preview
               </CardTitle>
               <CardDescription>

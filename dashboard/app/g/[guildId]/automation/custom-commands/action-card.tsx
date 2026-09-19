@@ -13,6 +13,7 @@ import {
   FileText,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { GuildChannel, GuildRole, WorkflowAction } from "@/lib/control-plane";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -612,11 +613,88 @@ export function ActionCard({
             />
           </div>
 
-          <div className="p-2.5 bg-muted/40 rounded-md text-xs text-muted-foreground flex items-center gap-2">
-            <Info className="h-4 w-4 text-primary shrink-0" />
-            <span>
-              The temporary voice channel will automatically delete as soon as all users disconnect.
-            </span>
+          {/* Inherit Category Permissions Toggle */}
+          <div className="flex items-center justify-between p-2.5 rounded-md bg-muted/30 border border-border/50">
+            <div className="space-y-0.5 pr-2">
+              <Label className="text-xs font-medium cursor-pointer" htmlFor={`inherit-cat-${index}`}>
+                Inherit Category Settings & Permissions
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Syncs private/public status and role access from the category. The room creator is automatically granted full access.
+              </p>
+            </div>
+            <Switch
+              id={`inherit-cat-${index}`}
+              checked={action.inherit_category_permissions !== false}
+              onCheckedChange={(checked) => onChange({ ...action, inherit_category_permissions: checked })}
+            />
+          </div>
+
+          {/* Empty Timeout / Auto-Delete Setting */}
+          <div className="space-y-2 p-2.5 rounded-md bg-muted/30 border border-border/50">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">Auto-Delete Delay when Empty</Label>
+              <span className="text-[11px]">
+                {action.empty_timeout === 0 ? (
+                  <span className="text-emerald-400 font-medium">Permanent Room (0)</span>
+                ) : (
+                  <span className="text-amber-400 font-medium">
+                    Deletes after {action.empty_timeout ?? 60}s empty
+                  </span>
+                )}
+              </span>
+            </div>
+            <Input
+              type="number"
+              min={0}
+              value={action.empty_timeout ?? 60}
+              onChange={(e) =>
+                onChange({ ...action, empty_timeout: Math.max(0, parseInt(e.target.value) || 0) })
+              }
+              className="text-xs h-8"
+              placeholder="0 for permanent, or seconds (e.g. 60)"
+            />
+            {/* Quick preset chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] text-muted-foreground mr-1">Presets:</span>
+              {[
+                { label: "0 (Permanent)", val: 0 },
+                { label: "30s", val: 30 },
+                { label: "1 min", val: 60 },
+                { label: "3 min", val: 180 },
+                { label: "5 min", val: 300 },
+                { label: "10 min", val: 600 },
+              ].map((chip) => (
+                <button
+                  key={chip.val}
+                  type="button"
+                  onClick={() => onChange({ ...action, empty_timeout: chip.val })}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer",
+                    (action.empty_timeout ?? 60) === chip.val
+                      ? "bg-primary text-primary-foreground border-primary font-medium"
+                      : "bg-background hover:bg-muted text-muted-foreground border-border/60"
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-2.5 bg-muted/40 rounded-md text-xs text-muted-foreground flex items-start gap-2">
+            <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div>
+              {action.empty_timeout === 0 ? (
+                <span>
+                  <strong>Permanent Room:</strong> This channel will remain open indefinitely and will <strong>not</strong> be auto-deleted even when empty.
+                </span>
+              ) : (
+                <span>
+                  <strong>Temporary Room:</strong> Channel will automatically delete if no one joins within <strong>{action.empty_timeout ?? 60}s</strong> of creation, or <strong>{action.empty_timeout ?? 60}s</strong> after all members leave.
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}

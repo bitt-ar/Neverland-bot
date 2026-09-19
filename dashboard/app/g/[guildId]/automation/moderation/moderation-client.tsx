@@ -3,27 +3,23 @@
 import * as React from "react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Shield,
-  ShieldAlert,
   AlertTriangle,
   RefreshCw,
   Save,
   RotateCcw,
-  Lock,
   Trash2,
   Plus,
   X,
   Radio,
-  FileText,
   Clock,
   UserX,
   MessageSquare,
   Ban,
-  Slash,
   Code2,
   CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 import {
   ModerationConfig,
@@ -105,6 +101,12 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
 
   // Active section tab
   const [activeTab, setActiveTab] = useState<"commands" | "automod" | "cases">("commands");
+  const [commandCategoryFilter, setCommandCategoryFilter] = useState<string>("all");
+
+  const filteredCommands = useMemo(() => {
+    if (commandCategoryFilter === "all") return MODERATION_COMMANDS;
+    return MODERATION_COMMANDS.filter((cmd) => cmd.category.toLowerCase() === commandCategoryFilter.toLowerCase());
+  }, [commandCategoryFilter]);
 
   const textChannels = useMemo(() => channels.filter((c) => c.type === "text"), [channels]);
 
@@ -421,10 +423,10 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <RefreshCw className="size-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Loading moderation rules and cases...</p>
-      </div>
+      <PageLoadingSkeleton
+        title="Moderation & AutoMod"
+        description="Loading moderation rules, permissions, and infraction cases..."
+      />
     );
   }
 
@@ -451,45 +453,67 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
   return (
     <div className="space-y-8">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Shield className="size-6 text-primary" />
-            Moderation & AutoMod
-          </h1>
-          <p className="text-sm text-muted-foreground">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Moderation & AutoMod
+            </h1>
+            <Badge
+              variant="outline"
+              className={
+                enabled
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
+              }
+            >
+              {enabled ? "Active" : "Disabled"}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
             Configure moderation slash commands, role-based command permissions, and AutoMod defenses.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={loadData}>
-            <RefreshCw className="size-3.5 mr-1" />
-            Refresh
-          </Button>
-
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
           {isDirty && (
-            <Button variant="ghost" size="sm" onClick={handleDiscardChanges} disabled={isSaving}>
-              <RotateCcw className="size-3.5 mr-1" />
-              Discard
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDiscardChanges}
+                disabled={isSaving}
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RotateCcw className="size-3.5 mr-1" />
+                Discard
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveConfig}
+                disabled={isSaving}
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
+              >
+                <Save className="size-3.5 mr-1" />
+                {isSaving ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
           )}
 
-          <Button size="sm" onClick={handleSaveConfig} disabled={!isDirty || isSaving}>
-            <Save className="size-3.5 mr-1.5" />
-            {isSaving ? "Saving..." : "Save Changes"}
-          </Button>
-
-          <div className="h-6 w-px bg-border/60 mx-1" />
-
-          {/* Module Master Switch */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-1.5 shadow-2xs">
+            <Label htmlFor="moderation-master-switch" className="text-xs font-medium cursor-pointer text-foreground">
+              {enabled ? "Module Enabled" : "Module Disabled"}
+            </Label>
             <Switch
+              id="moderation-master-switch"
               checked={enabled}
               disabled={isTogglingState}
               onCheckedChange={handleToggleEnabled}
             />
-            <span className="text-xs font-medium">{enabled ? "Enabled" : "Disabled"}</span>
           </div>
         </div>
       </div>
@@ -497,8 +521,7 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
       {/* Primary Settings Card (Logs Channel) */}
       <Card className="border border-border/80 shadow-xs">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <FileText className="size-4 text-primary" />
+          <CardTitle className="text-base font-semibold">
             Moderation Logs Channel
           </CardTitle>
           <CardDescription>
@@ -530,9 +553,8 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
           variant={activeTab === "commands" ? "default" : "ghost"}
           size="sm"
           onClick={() => setActiveTab("commands")}
-          className="gap-2"
+          className="gap-1.5 text-xs font-medium"
         >
-          <Slash className="size-4" />
           Command Permissions & Roles
           <Badge variant="secondary" className="ml-1 text-[10px]">
             {MODERATION_COMMANDS.length}
@@ -543,9 +565,8 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
           variant={activeTab === "automod" ? "default" : "ghost"}
           size="sm"
           onClick={() => setActiveTab("automod")}
-          className="gap-2"
+          className="gap-1.5 text-xs font-medium"
         >
-          <ShieldAlert className="size-4" />
           AutoMod Defenses
           {(antiSpam.enabled || antiInvite.enabled || antiMention.enabled || badWords.enabled) && (
             <span className="size-2 rounded-full bg-emerald-500" />
@@ -556,9 +577,8 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
           variant={activeTab === "cases" ? "default" : "ghost"}
           size="sm"
           onClick={() => setActiveTab("cases")}
-          className="gap-2"
+          className="gap-1.5 text-xs font-medium"
         >
-          <Clock className="size-4" />
           Infraction Cases
           <Badge variant="secondary" className="ml-1 text-[10px]">
             {cases.length}
@@ -569,15 +589,30 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
       {/* TAB 1: Command Roles & Toggles */}
       {activeTab === "commands" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground max-w-2xl">
               Enable/disable commands and restrict which Discord roles are permitted to execute each command.
-              If no roles are selected for a command, it defaults to server members with standard Administrator permissions.
+              If no roles are selected, commands operate in their default state (Admins-only for administration commands, Everyone for public commands).
             </p>
+
+            {/* Category Filter Buttons */}
+            <div className="flex flex-wrap gap-1">
+              {["all", "Moderation", "Administration", "Leveling", "Tickets", "Giveaways"].map((cat) => (
+                <Button
+                  key={cat}
+                  variant={commandCategoryFilter === cat.toLowerCase() ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs capitalize"
+                  onClick={() => setCommandCategoryFilter(cat.toLowerCase())}
+                >
+                  {cat === "all" ? "All Commands" : cat}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {MODERATION_COMMANDS.map((cmd) => {
+            {filteredCommands.map((cmd) => {
               const isDisabled = disabledCommands.includes(cmd.id);
               const assignedRoles = commandRoles[cmd.id] || [];
 
@@ -592,12 +627,18 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
                 >
                   <CardHeader className="p-4 pb-2">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-sm font-semibold text-primary">
                           {cmd.name}
                         </span>
+                        <Badge variant="secondary" className="text-[10px] font-medium">
+                          {cmd.category}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px]">
+                          {cmd.defaultAdminOnly ? "Default: Admin" : "Default: Public"}
+                        </Badge>
                         {isDisabled && (
-                          <Badge variant="outline" className="text-xs text-muted-foreground">
+                          <Badge variant="outline" className="text-xs text-muted-foreground border-destructive/40 text-destructive">
                             Disabled
                           </Badge>
                         )}
@@ -620,14 +661,13 @@ export function ModerationClient({ guildId }: ModerationClientProps) {
 
                   <CardContent className="p-4 pt-2 space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs font-medium flex items-center gap-1">
-                        <Lock className="size-3 text-muted-foreground" />
+                      <Label className="text-xs font-medium">
                         Allowed Roles
                       </Label>
                       <span className="text-[11px] text-muted-foreground">
                         {assignedRoles.length === 0
-                          ? "Admins only"
-                          : `${assignedRoles.length} role(s) authorized`}
+                          ? (cmd.defaultAdminOnly ? "Default (Admins only)" : "Default (Everyone)")
+                          : `${assignedRoles.length} custom role(s) authorized`}
                       </span>
                     </div>
 

@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from bot.modules.moderation.helpers import log_moderation_action
 from core import database
+from core.permissions import check_command_permission
 
 logger = logging.getLogger(__name__)
 
@@ -33,48 +34,13 @@ class ModerationCommandsCog(commands.Cog):
             await interaction.response.send_message("The moderation module is currently disabled.", ephemeral=True)
             return False
 
-        cfg = {}
-        if self.registry:
-            cfg = await self.registry.get_config(interaction.guild_id, "moderation")
-
-        # 1. Command enabled/disabled toggle check
-        disabled_cmds = cfg.get("disabled_commands") or []
-        if command_name in disabled_cmds:
-            await interaction.response.send_message(
-                f"⛔ The command `/{command_name}` has been disabled by server administrators.",
-                ephemeral=True,
-            )
-            return False
-
-        # 2. Administrator always has bypass
-        if interaction.user.guild_permissions.administrator:
-            return True
-
-        # 3. Role-based command permissions (configured in dashboard)
-        command_roles_map = cfg.get("command_roles") or {}
-        allowed_roles = command_roles_map.get(command_name) or []
-        if allowed_roles:
-            user_roles = [r.id for r in interaction.user.roles]
-            if any(int(rid) in user_roles for rid in allowed_roles):
-                return True
-            role_mentions = ", ".join([f"<@&{rid}>" for rid in allowed_roles])
-            await interaction.response.send_message(
-                f"⛔ You do not have permission to use `/{command_name}`. Required roles: {role_mentions}",
-                ephemeral=True,
-            )
-            return False
-
-        # 4. Fallback to Discord native permissions
-        user_perms = interaction.user.guild_permissions
-        has_perm = getattr(user_perms, fallback_perm, False)
-        if not has_perm:
-            await interaction.response.send_message(
-                f"⛔ You need the `{fallback_perm.replace('_', ' ').title()}` permission to use this command.",
-                ephemeral=True,
-            )
-            return False
-
-        return True
+        return await check_command_permission(
+            self.bot,
+            interaction,
+            command_name=command_name,
+            default_admin_only=True,
+            fallback_perm=fallback_perm,
+        )
 
     def _can_moderate(self, moderator: discord.Member, target: discord.Member) -> tuple[bool, str]:
         """Ensures hierarchy rules: moderator must have higher role than target, and target cannot be owner/bot."""
@@ -503,15 +469,7 @@ class ModerationCommandsCog(commands.Cog):
         channel: Optional[discord.TextChannel] = None,
         off: bool = False,
     ):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Can only be used in a server.", ephemeral=True)
-            return
-
-        is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == interaction.guild.owner_id
-        if not is_admin:
-            await interaction.response.send_message(
-                "⛔ You need Administrator permissions to configure moderation logs.", ephemeral=True
-            )
+        if not await self._check_permission(interaction, "moderation_logs", "administrator"):
             return
 
         cfg = await self.registry.get_config(interaction.guild_id, "moderation") if self.registry else {}

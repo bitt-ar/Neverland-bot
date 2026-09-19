@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import re
 from aiohttp import web
 import discord
@@ -15,6 +16,23 @@ from core import config, database
 from bot.modules.custom_commands.engine import build_dropdown_view_from_data
 from bot.modules.custom_commands.workflow import build_embed
 from bot.modules.moderation.helpers import validate_regex_pattern
+from bot.control.radio_handlers import (
+    radio_config_get_handler,
+    radio_config_put_handler,
+    radio_bots_get_handler,
+    radio_bot_save_handler,
+    radio_bot_delete_handler,
+    radio_playlists_list_handler,
+    radio_playlist_create_handler,
+    radio_playlist_put_handler,
+    radio_playlist_delete_handler,
+    radio_tracks_list_handler,
+    radio_track_upload_handler,
+    radio_track_delete_handler,
+    radio_play_handler,
+    radio_stop_handler,
+    radio_status_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +104,23 @@ _admin_cache: dict[tuple[int, int], tuple[bool, float]] = {}
 
 
 async def _check_guild_admin(guild, user_id: int) -> bool:
-    """Returns True if the user is the server owner or has an Administrator role in the guild."""
+    """Returns True if the user is the server owner, bot owner/admin, or has Administrator/Manage Guild in the guild."""
     if not guild or not user_id:
         return False
     if str(getattr(guild, "owner_id", "")) == str(user_id):
+        return True
+
+    # Check bot owner/admin environment settings
+    owner_and_admins = [
+        s.strip()
+        for s in (
+            (os.getenv("OWNER_DISCORD_ID") or "")
+            + ","
+            + (os.getenv("ADMIN_DISCORD_IDS") or "")
+        ).split(",")
+        if s.strip()
+    ]
+    if str(user_id) in owner_and_admins:
         return True
 
     cache_key = (getattr(guild, "id", 0), user_id)
@@ -108,7 +139,10 @@ async def _check_guild_admin(guild, user_id: int) -> bool:
 
     result = False
     if member is not None:
-        result = bool(member.guild_permissions.administrator)
+        result = bool(
+            member.guild_permissions.administrator
+            or member.guild_permissions.manage_guild
+        )
 
     _admin_cache[cache_key] = (result, now + 15.0)
     return result
@@ -183,7 +217,7 @@ async def bot_info_handler(request: web.Request) -> web.Response:
         })
     except Exception as e:
         logger.exception("Error in bot_info_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to fetch bot info"}, status=500)
 
 
 async def bot_stats_handler(request: web.Request) -> web.Response:
@@ -215,7 +249,8 @@ async def bot_stats_handler(request: web.Request) -> web.Response:
             "db": await check_db(),
         })
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        logger.exception("Error in bot_stats_handler: %s", e)
+        return web.json_response({"error": "Failed to aggregate bot statistics"}, status=500)
 
 
 async def bot_logs_handler(request: web.Request) -> web.Response:
@@ -455,6 +490,7 @@ async def guild_channels_handler(request: web.Request) -> web.Response:
                         "name": getattr(c, "name", ""),
                         "type": c_type,
                         "position": pos,
+                        "category_id": str(c.category.id) if getattr(c, "category", None) else None,
                     },
                     "sort_key": (cat_pos, is_not_cat, ch_pos),
                 }
@@ -1124,7 +1160,7 @@ async def reaction_role_post_handler(request: web.Request) -> web.Response:
         await database.replace_message_reaction_roles(guild.id, msg.id, doc)
     except Exception as e:
         logger.exception("Error saving reaction-role doc to database: %s", e)
-        return web.json_response({"error": "database_error", "details": str(e)}, status=500)
+        return web.json_response({"error": "database_error", "message": "Failed saving reaction roles to database"}, status=500)
 
     return web.json_response(_format_rr_doc(doc), status=201)
 
@@ -1234,7 +1270,7 @@ async def reaction_role_put_handler(request: web.Request) -> web.Response:
         await database.replace_message_reaction_roles(guild.id, message_id_raw, doc)
     except Exception as e:
         logger.exception("Error updating reaction-role doc: %s", e)
-        return web.json_response({"error": "database_error", "details": str(e)}, status=500)
+        return web.json_response({"error": "database_error", "message": "Failed updating reaction roles in database"}, status=500)
 
     return web.json_response(_format_rr_doc(doc), status=200)
 
@@ -1384,7 +1420,7 @@ async def tickets_publish_panel_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": f"Discord permission denied: {fe}"}, status=403)
     except Exception as e:
         logger.exception("Unexpected error publishing ticket panel: %s", e)
-        return web.json_response({"error": f"Failed to publish panel: {str(e)}"}, status=500)
+        return web.json_response({"error": "Failed to publish ticket panel to Discord"}, status=500)
 
 
 async def tickets_list_handler(request: web.Request) -> web.Response:
@@ -1526,7 +1562,7 @@ async def giveaways_list_handler(request: web.Request) -> web.Response:
         )
     except Exception as e:
         logger.exception("Error in giveaways_list_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to fetch giveaways list"}, status=500)
 
 
 async def giveaways_create_handler(request: web.Request) -> web.Response:
@@ -1667,7 +1703,7 @@ async def giveaways_reroll_handler(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "winners": [str(w) for w in new_winners]})
     except Exception as e:
         logger.exception("Error in giveaways_reroll_handler: %s", e)
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "Failed to reroll giveaway winners"}, status=500)
 
 
 async def giveaways_config_put_handler(request: web.Request) -> web.Response:
@@ -1807,6 +1843,11 @@ async def custom_command_post_handler(request: web.Request) -> web.Response:
             await database.db.custom_commands.insert_one(doc)
             doc["_id"] = str(doc.get("_id", ""))
 
+        bot = request.app.get("bot")
+        cc_cog = bot.get_cog("CustomCommandsEngineCog") if bot else None
+        if cc_cog and hasattr(cc_cog, "invalidate_command_cache"):
+            cc_cog.invalidate_command_cache(guild.id)
+
         return web.json_response({"status": "ok", "command": doc}, status=201)
     except Exception as e:
         logger.exception("Error in custom_command_post_handler: %s", e)
@@ -1850,6 +1891,12 @@ async def custom_command_put_handler(request: web.Request) -> web.Response:
             if not res:
                 return web.json_response({"error": "command_not_found"}, status=404)
             res["_id"] = str(res.get("_id", ""))
+
+            bot = request.app.get("bot")
+            cc_cog = bot.get_cog("CustomCommandsEngineCog") if bot else None
+            if cc_cog and hasattr(cc_cog, "invalidate_command_cache"):
+                cc_cog.invalidate_command_cache(guild.id)
+
             return web.json_response({"status": "ok", "command": res})
 
         return web.json_response({"status": "ok"})
@@ -1874,6 +1921,11 @@ async def custom_command_delete_handler(request: web.Request) -> web.Response:
             )
             if res.deleted_count == 0:
                 return web.json_response({"error": "command_not_found"}, status=404)
+
+            bot = request.app.get("bot")
+            cc_cog = bot.get_cog("CustomCommandsEngineCog") if bot else None
+            if cc_cog and hasattr(cc_cog, "invalidate_command_cache"):
+                cc_cog.invalidate_command_cache(guild.id)
 
         return web.json_response({"status": "ok"})
     except Exception as e:
@@ -2067,7 +2119,7 @@ async def custom_dropdown_publish_handler(request: web.Request) -> web.Response:
         })
     except Exception as e:
         logger.exception("Error in custom_dropdown_publish_handler: %s", e)
-        return web.json_response({"error": f"Failed to publish dropdown: {e}"}, status=500)
+        return web.json_response({"error": "Failed to publish dropdown menu to channel"}, status=500)
 
 
 # =====================================================================
@@ -2092,16 +2144,135 @@ async def moderation_regex_test_handler(request: web.Request) -> web.Response:
             "span": list(match.span()) if match else None,
         })
     except Exception as e:
-        return web.json_response({"valid": False, "error": str(e)}, status=400)
+        logger.warning("Regex test execution error: %s", e)
+        return web.json_response({"valid": False, "error": "Invalid regex pattern execution"}, status=400)
+
+
+def build_discord_presence(bot, status_str: str, activity_type: str, activity_name: str, streaming_url: str = ""):
+    status_map = {
+        "online": discord.Status.online,
+        "idle": discord.Status.idle,
+        "dnd": discord.Status.dnd,
+        "invisible": discord.Status.invisible,
+        "offline": discord.Status.invisible,
+    }
+    status_obj = status_map.get(str(status_str or "").lower().strip(), discord.Status.online)
+
+    name = str(activity_name or "").strip()
+    if name:
+        guilds_count = len(getattr(bot, "guilds", []) or [])
+        members_count = sum(getattr(g, "member_count", 0) or 0 for g in getattr(bot, "guilds", []) or [])
+        name = name.replace("{servers}", str(guilds_count)).replace("{guilds}", str(guilds_count))
+        name = name.replace("{members}", str(members_count)).replace("{users}", str(members_count))
+        name = name.replace("{version}", "0.1.0")
+
+    act_type = str(activity_type or "").lower().strip()
+    if not name or act_type in ("none", "clear", ""):
+        return status_obj, None
+
+    if act_type == "custom":
+        return status_obj, discord.CustomActivity(name=name)
+    elif act_type == "playing":
+        return status_obj, discord.Game(name=name)
+    elif act_type == "streaming":
+        url = str(streaming_url or "").strip() or "https://twitch.tv/discord"
+        return status_obj, discord.Streaming(name=name, url=url)
+    elif act_type == "listening":
+        return status_obj, discord.Activity(type=discord.ActivityType.listening, name=name)
+    elif act_type == "watching":
+        return status_obj, discord.Activity(type=discord.ActivityType.watching, name=name)
+    elif act_type == "competing":
+        return status_obj, discord.Activity(type=discord.ActivityType.competing, name=name)
+    else:
+        return status_obj, discord.CustomActivity(name=name)
+
+
+async def apply_bot_presence(bot, presence_dict: dict) -> bool:
+    try:
+        status_obj, activity_obj = build_discord_presence(
+            bot,
+            presence_dict.get("status", "idle"),
+            presence_dict.get("activity_type", "custom"),
+            presence_dict.get("activity_name", "At your service"),
+            presence_dict.get("streaming_url", ""),
+        )
+        await bot.change_presence(status=status_obj, activity=activity_obj)
+        return True
+    except Exception as e:
+        logger.exception("Failed to change bot presence: %s", e)
+        return False
+
+
+async def bot_presence_get_handler(request: web.Request) -> web.Response:
+    bot = request.app.get("bot")
+    stored = await database.get_bot_presence()
+    guilds = getattr(bot, "guilds", []) or []
+    members_count = sum(getattr(g, "member_count", 0) or 0 for g in guilds)
+
+    return web.json_response({
+        "status": stored.get("status", "idle"),
+        "activity_type": stored.get("activity_type", "custom"),
+        "activity_name": stored.get("activity_name", "At your service"),
+        "streaming_url": stored.get("streaming_url", ""),
+        "updated_at": stored.get("updated_at"),
+        "guild_count": len(guilds),
+        "member_count": members_count,
+    })
+
+
+async def bot_presence_put_handler(request: web.Request) -> web.Response:
+    bot = request.app.get("bot")
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    status = str(data.get("status", "online")).lower().strip()
+    if status not in ("online", "idle", "dnd", "invisible", "offline"):
+        return web.json_response({"error": "invalid_status", "allowed": ["online", "idle", "dnd", "invisible"]}, status=400)
+
+    activity_type = str(data.get("activity_type", "custom")).lower().strip()
+    allowed_types = ["custom", "playing", "streaming", "listening", "watching", "competing", "none"]
+    if activity_type not in allowed_types:
+        return web.json_response({"error": "invalid_activity_type", "allowed": allowed_types}, status=400)
+
+    activity_name = str(data.get("activity_name", "")).strip()
+    streaming_url = str(data.get("streaming_url", "")).strip()
+    if activity_type == "streaming" and not streaming_url:
+        streaming_url = "https://twitch.tv/discord"
+
+    presence_payload = {
+        "status": status,
+        "activity_type": activity_type,
+        "activity_name": activity_name,
+        "streaming_url": streaming_url,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+    await database.save_bot_presence(presence_payload)
+
+    applied = False
+    if bot is not None and not bot.is_closed():
+        applied = await apply_bot_presence(bot, presence_payload)
+
+    presence_payload["applied_live"] = applied
+    guilds = getattr(bot, "guilds", []) or []
+    presence_payload["guild_count"] = len(guilds)
+    presence_payload["member_count"] = sum(getattr(g, "member_count", 0) or 0 for g in guilds)
+    return web.json_response(presence_payload)
 
 
 def create_app(bot) -> web.Application:
-    app = web.Application(middlewares=[auth_middleware])
+    # Allow audio uploads up to 500MB without aiohttp cutting stream at default 1MB
+    app = web.Application(middlewares=[auth_middleware], client_max_size=500 * 1024 * 1024)
     app["bot"] = bot
     app.router.add_get("/health", health_handler)
     app.router.add_get("/guilds", guilds_list_handler)
     app.router.add_get("/bot", bot_info_handler)
     app.router.add_get("/stats", bot_stats_handler)
+    app.router.add_get("/bot/presence", bot_presence_get_handler)
+    app.router.add_put("/bot/presence", bot_presence_put_handler)
+    app.router.add_post("/bot/presence", bot_presence_put_handler)
     app.router.add_get("/bot/logs", bot_logs_handler)
     app.router.add_get("/logs", bot_logs_handler)
 
@@ -2151,6 +2322,23 @@ def create_app(bot) -> web.Application:
         app.router.add_put(f"{prefix}/custom-dropdowns/{{dd_id}}", custom_dropdown_put_handler)
         app.router.add_delete(f"{prefix}/custom-dropdowns/{{dd_id}}", custom_dropdown_delete_handler)
         app.router.add_post(f"{prefix}/custom-dropdowns/{{dd_id}}/publish", custom_dropdown_publish_handler)
+
+        # Radio & Multi-Bot Broadcast endpoints
+        app.router.add_get(f"{prefix}/radio/config", radio_config_get_handler)
+        app.router.add_put(f"{prefix}/radio/config", radio_config_put_handler)
+        app.router.add_get(f"{prefix}/radio/bots", radio_bots_get_handler)
+        app.router.add_post(f"{prefix}/radio/bots", radio_bot_save_handler)
+        app.router.add_delete(f"{prefix}/radio/bots/{{bot_slot}}", radio_bot_delete_handler)
+        app.router.add_get(f"{prefix}/radio/playlists", radio_playlists_list_handler)
+        app.router.add_post(f"{prefix}/radio/playlists", radio_playlist_create_handler)
+        app.router.add_put(f"{prefix}/radio/playlists/{{playlist_id}}", radio_playlist_put_handler)
+        app.router.add_delete(f"{prefix}/radio/playlists/{{playlist_id}}", radio_playlist_delete_handler)
+        app.router.add_get(f"{prefix}/radio/playlists/{{playlist_id}}/tracks", radio_tracks_list_handler)
+        app.router.add_post(f"{prefix}/radio/playlists/{{playlist_id}}/upload", radio_track_upload_handler)
+        app.router.add_delete(f"{prefix}/radio/playlists/{{playlist_id}}/tracks/{{track_id}}", radio_track_delete_handler)
+        app.router.add_post(f"{prefix}/radio/play", radio_play_handler)
+        app.router.add_post(f"{prefix}/radio/stop", radio_stop_handler)
+        app.router.add_get(f"{prefix}/radio/status", radio_status_handler)
 
     app.router.add_get("/modules", modules_list_handler)
 

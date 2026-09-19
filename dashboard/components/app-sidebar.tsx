@@ -17,6 +17,8 @@ import {
   Ticket,
   UserPlus,
   Volume2,
+  Radio,
+  Bot,
 } from "lucide-react";
 import { NeverlandLogo } from "@/components/logo";
 
@@ -239,6 +241,12 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
             icon: Ticket,
             isActive: subPath.startsWith("/community/tickets"),
           },
+          {
+            title: "Radio & Broadcast",
+            href: guildHref("community/radio"),
+            icon: Radio,
+            isActive: subPath.startsWith("/community/radio"),
+          },
         ],
       },
     ] as { label: string; items: NavItem[] }[];
@@ -247,6 +255,13 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
       groups.push({
         label: "CONFIGURATION",
         items: [
+          {
+            title: "Bot Presence & Status",
+            href: "/settings/presence",
+            icon: Bot,
+            isActive: pathname === "/settings/presence",
+            badge: "Owner",
+          },
           {
             title: "Diagnostics & Health",
             href: "/settings",
@@ -314,14 +329,22 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
         </div>
       </div>
 
-      <SidebarContent className="px-2 py-1 space-y-2">
+      <SidebarContent className="px-2 py-1.5 space-y-3">
         {filteredGroups.map((group) => (
           <SidebarGroup key={group.label} className="p-0">
-            <SidebarGroupLabel className="text-[10px] font-mono font-semibold tracking-wider text-muted-foreground/70 uppercase px-2 py-1 select-none">
-              {group.label}
+            <SidebarGroupLabel className="text-[10px] font-mono font-semibold tracking-wider text-muted-foreground/80 uppercase px-2 py-1.5 select-none flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                {group.label === "COLLECTIONS" && (
+                  <span className="size-1 rounded-full bg-primary/80" />
+                )}
+                {group.label}
+              </span>
+              <span className="text-[9px] font-mono text-muted-foreground/50 lowercase">
+                {group.items.length}
+              </span>
             </SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
+              <SidebarMenu className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -330,22 +353,22 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
                         render={<Link href={item.href} />}
                         isActive={item.isActive}
                         tooltip={item.title}
-                        className={`h-8 px-2.5 rounded-md text-xs font-medium transition-colors flex items-center justify-between ${
+                        className={`h-8 px-2.5 rounded-md text-xs font-medium transition-all flex items-center justify-between ${
                           item.isActive
-                            ? "bg-accent text-accent-foreground font-semibold shadow-2xs"
+                            ? "bg-primary/10 text-primary font-semibold shadow-2xs border border-primary/20"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <Icon
-                            className={`size-3.5 shrink-0 ${
-                              item.isActive ? "text-primary" : "text-muted-foreground"
+                            className={`size-3.5 shrink-0 transition-colors ${
+                              item.isActive ? "text-primary" : "text-muted-foreground/80"
                             }`}
                           />
                           <span className="truncate">{item.title}</span>
                         </div>
                         {item.badge && (
-                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-data-[collapsible=icon]:hidden">
+                          <span className="text-[9px] font-mono font-semibold px-1 py-0.2 rounded bg-primary/10 text-primary border border-primary/20 group-data-[collapsible=icon]:hidden">
                             {item.badge}
                           </span>
                         )}

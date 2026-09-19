@@ -111,9 +111,9 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Authentication failed";
+    console.error("OAuth Discord callback failure:", err);
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("error", encodeURIComponent(message));
+    loginUrl.searchParams.set("error", "oauth_exchange_failed");
     return NextResponse.redirect(loginUrl);
   }
 }

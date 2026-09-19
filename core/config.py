@@ -21,3 +21,10 @@ try:
 except ValueError:
     CONTROL_PLANE_PORT = 8800
 CONTROL_PLANE_SECRET = os.getenv("CONTROL_PLANE_SECRET") or None
+
+RADIO_ENCRYPTION_KEY = os.getenv("RADIO_ENCRYPTION_KEY") or None
+
+try:
+    RADIO_MAX_PLAYLIST_STORAGE_MB = max(1, int(os.getenv("RADIO_MAX_PLAYLIST_STORAGE_MB", "100")))
+except ValueError:
+    RADIO_MAX_PLAYLIST_STORAGE_MB = 100

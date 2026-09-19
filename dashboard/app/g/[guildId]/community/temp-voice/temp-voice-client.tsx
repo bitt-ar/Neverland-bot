@@ -409,17 +409,16 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
   return (
     <div className="space-y-6">
       {/* 1. Status Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2.5">
-            <Mic className="size-6 text-primary shrink-0" />
             <h1 className="text-2xl font-bold tracking-tight">Temp Voice</h1>
             <Badge
               variant="outline"
               className={
                 enabled
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs"
-                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
               }
             >
               {enabled ? "Active" : "Disabled"}
@@ -431,24 +430,28 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
         </div>
 
         {/* Header Actions */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
           {isDirty && (
             <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleDiscardChanges}
                 disabled={isSaving}
-                className="h-8 text-xs"
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
               >
-                <RotateCcw className="size-3.5 mr-1 text-muted-foreground" />
+                <RotateCcw className="size-3.5 mr-1" />
                 <span>Discard</span>
               </Button>
               <Button
                 size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="h-8 text-xs shadow-xs"
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
               >
                 <Save className="size-3.5 mr-1" />
                 <span>{isSaving ? "Saving..." : "Save Changes"}</span>
@@ -490,17 +493,10 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <Sliders className="size-4 text-muted-foreground" />
                 <CardTitle className="text-base font-semibold">Temp Voice Areas</CardTitle>
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-xs font-mono">
                   {areas.length} / {MAX_AREAS}
                 </Badge>
-                {isDirty && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-medium ml-1">
-                    <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    Unsaved
-                  </span>
-                )}
               </div>
               <Button
                 variant="outline"
@@ -548,10 +544,6 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
                     ),
                 },
               ]}
-              isDirty={isDirty}
-              isSaving={isSaving}
-              onSave={handleSave}
-              onDiscard={handleDiscardChanges}
             />
 
             {areas.length === 0 ? (
@@ -832,33 +824,6 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
               </div>
             )}
           </CardContent>
-
-          {isDirty && (
-            <CardFooter className="border-t border-border/50 bg-muted/10 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs text-muted-foreground">You have unsaved changes in this configuration.</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDiscardChanges}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  <RotateCcw className="size-3.5 mr-1" />
-                  <span>Discard</span>
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="h-8 text-xs shadow-xs"
-                >
-                  <Save className="size-3.5 mr-1" />
-                  <span>{isSaving ? "Saving..." : "Save Changes"}</span>
-                </Button>
-              </div>
-            </CardFooter>
-          )}
         </Card>
 
         {/* Card 2: Active Channels Card */}
@@ -866,9 +831,8 @@ export function TempVoiceClient({ guildId }: TempVoiceClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <Radio className="size-4 text-emerald-500" />
                 <CardTitle className="text-base font-semibold">Active Temporary Channels</CardTitle>
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-xs font-mono">
                   {activeChannels.length} active
                 </Badge>
               </div>

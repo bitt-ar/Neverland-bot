@@ -12,8 +12,8 @@ import {
   Layers,
   RefreshCw,
   Save,
+  RotateCcw,
   Clock,
-  Sliders,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SelectSearchable } from "@/components/ui/select-searchable";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface CustomCommandsClientProps {
   guildId: string;
@@ -64,9 +65,8 @@ interface CustomCommandsClientProps {
 import { ActionCard, ACTION_TYPE_LABELS } from "./action-card";
 
 const TEMPLATE_VARIABLES = [
-  { tag: "{user}", desc: "User username" },
-  { tag: "{user_mention}", desc: "Mention user (@User)" },
-  { tag: "{user_id}", desc: "User Discord ID" },
+  { tag: "{user}", desc: "User Mention (@User)" },
+  { tag: "{username}", desc: "Username" },
   { tag: "{server}", desc: "Server Name" },
   { tag: "{channel}", desc: "Channel Name" },
   { tag: "{channel_mention}", desc: "Channel Mention (#chan)" },
@@ -80,6 +80,7 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
   const [moduleEnabled, setModuleEnabled] = useState(false);
   const [prefix, setPrefix] = useState("!");
   const [deleteTriggerDefault, setDeleteTriggerDefault] = useState(false);
+  const [savedConfig, setSavedConfig] = useState({ prefix: "!", delete_trigger_default: false });
   const [savingConfig, setSavingConfig] = useState(false);
 
   // Data
@@ -145,8 +146,11 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
 
       if (cfgRes.ok) {
         const cfgData = await cfgRes.json();
-        setPrefix(cfgData.prefix || "!");
-        setDeleteTriggerDefault(Boolean(cfgData.delete_trigger_default));
+        const pfx = cfgData.prefix || "!";
+        const dtd = Boolean(cfgData.delete_trigger_default);
+        setPrefix(pfx);
+        setDeleteTriggerDefault(dtd);
+        setSavedConfig({ prefix: pfx, delete_trigger_default: dtd });
       }
 
       if (chanRes.ok) {
@@ -178,6 +182,16 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const isConfigDirty = useMemo(() => {
+    return prefix !== savedConfig.prefix || deleteTriggerDefault !== savedConfig.delete_trigger_default;
+  }, [prefix, deleteTriggerDefault, savedConfig]);
+
+  const handleDiscardConfig = () => {
+    setPrefix(savedConfig.prefix);
+    setDeleteTriggerDefault(savedConfig.delete_trigger_default);
+    toast.info("Unsaved changes discarded");
+  };
 
   // Toggle Module
   const handleToggleModule = async (checked: boolean) => {
@@ -211,6 +225,7 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
         }),
       });
       if (res.ok) {
+        setSavedConfig({ prefix, delete_trigger_default: deleteTriggerDefault });
         toast.success("Settings saved successfully.");
       } else {
         toast.error("Failed to save settings.");
@@ -508,45 +523,82 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading custom commands and workflows...</p>
-      </div>
+      <PageLoadingSkeleton
+        title="Custom Commands & Menus"
+        description="Configure dynamic slash commands, interactive dropdown menus, and workflow actions."
+      />
     );
   }
 
   return (
     <div className="space-y-6">
       {/* Header & Global Module Control */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card p-6 rounded-xl border">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight">Custom Commands & Menus</h1>
-            <Badge variant={moduleEnabled ? "default" : "secondary"}>
+            <Badge
+              variant="outline"
+              className={
+                moduleEnabled
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
+              }
+            >
               {moduleEnabled ? "Active" : "Disabled"}
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Build interactive chat commands and persistent dropdown select menus powered by multi-step workflows.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Label htmlFor="module-toggle" className="text-sm font-medium">
-            Enable Module
-          </Label>
-          <Switch
-            id="module-toggle"
-            checked={moduleEnabled}
-            onCheckedChange={handleToggleModule}
-          />
+
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
+          {isConfigDirty && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDiscardConfig}
+                disabled={savingConfig}
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RotateCcw className="size-3.5 mr-1" />
+                <span>Discard</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveConfig}
+                disabled={savingConfig}
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
+              >
+                <Save className="size-3.5 mr-1" />
+                <span>{savingConfig ? "Saving..." : "Save Changes"}</span>
+              </Button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-1.5 shadow-2xs">
+            <Label htmlFor="module-toggle" className="text-xs font-medium cursor-pointer text-foreground">
+              {moduleEnabled ? "Module Enabled" : "Module Disabled"}
+            </Label>
+            <Switch
+              id="module-toggle"
+              checked={moduleEnabled}
+              onCheckedChange={handleToggleModule}
+            />
+          </div>
         </div>
       </div>
 
       {/* Global Config Card */}
       <Card>
         <CardHeader className="py-4">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sliders className="h-4 w-4 text-primary" />
+          <CardTitle className="text-base">
             General Command Settings
           </CardTitle>
           <CardDescription>
@@ -582,27 +634,15 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
             </div>
           </div>
         </CardContent>
-        <CardFooter className="py-3 bg-muted/20 border-t flex justify-end">
-          <Button size="sm" onClick={handleSaveConfig} disabled={savingConfig}>
-            {savingConfig ? (
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-2" />
-            )}
-            Save Settings
-          </Button>
-        </CardFooter>
       </Card>
 
       {/* Main Tabs: Commands vs Dropdowns */}
       <Tabs defaultValue="commands" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
-          <TabsTrigger value="commands" className="flex items-center gap-2">
-            <Zap className="h-4 w-4" />
+          <TabsTrigger value="commands">
             Custom Commands ({commands.length})
           </TabsTrigger>
-          <TabsTrigger value="dropdowns" className="flex items-center gap-2">
-            <Layers className="h-4 w-4" />
+          <TabsTrigger value="dropdowns">
             Select Menus ({dropdowns.length})
           </TabsTrigger>
         </TabsList>

@@ -11,6 +11,7 @@ from bot.modules.reaction_roles.module import ReactionRolesModule
 from bot.modules.temp_voice.module import TempVoiceModule
 from bot.modules.tickets.module import TicketsModule
 from bot.modules.welcome.module import WelcomeModule
+from bot.modules.radio.module import RadioModule
 from core import database
 
 logger = logging.getLogger(__name__)
@@ -493,6 +494,7 @@ def build_registry(bot) -> Registry:
         TicketsModule(bot),
         ModerationModule(bot),
         CustomCommandsModule(bot),
+        RadioModule(bot),
     ]
     return Registry(bot, modules)
 

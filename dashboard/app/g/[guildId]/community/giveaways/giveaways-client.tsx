@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Gift,
   Trophy,
   Clock,
   Users,
@@ -12,6 +11,7 @@ import {
   Trash2,
   RefreshCw,
   Save,
+  RotateCcw,
   Sparkles,
   AlertCircle,
   Hash,
@@ -20,6 +20,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 import {
   GiveawayItem,
@@ -210,6 +211,12 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
     }
   };
 
+  const handleDiscardConfig = () => {
+    setLogsChannelId(savedConfig.logs_channel_id || null);
+    setManagerRoleIds(savedConfig.manager_role_ids || []);
+    toast.info("Unsaved changes discarded");
+  };
+
   // Toggle manager role
   const handleToggleManagerRole = (roleId: string) => {
     setManagerRoleIds((prev) =>
@@ -351,10 +358,10 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <RefreshCw className="size-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Loading giveaways & configuration...</p>
-      </div>
+      <PageLoadingSkeleton
+        title="Giveaways"
+        description="Loading active giveaways and distribution settings..."
+      />
     );
   }
 
@@ -381,18 +388,42 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Gift className="size-6 text-primary" />
-            Giveaways
-          </h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Giveaways</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Create and manage server giveaways with role multipliers, requirements, and logs.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadData}>
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
+          {isConfigDirty && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDiscardConfig}
+                disabled={isSavingConfig}
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RotateCcw className="size-3.5 mr-1" />
+                <span>Discard</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveConfig}
+                disabled={isSavingConfig}
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
+              >
+                <Save className="size-3.5 mr-1" />
+                <span>{isSavingConfig ? "Saving..." : "Save Changes"}</span>
+              </Button>
+            </div>
+          )}
+          <Button variant="outline" size="sm" onClick={loadData} className="h-8 text-xs">
             <RefreshCw className="size-3.5 mr-1" />
             Refresh
           </Button>
@@ -406,12 +437,11 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
           <Card className="border border-border/80 shadow-xs">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Shield className="size-4 text-primary" />
+                <CardTitle className="text-base font-semibold">
                   Giveaway Module Settings
                 </CardTitle>
                 {isConfigDirty && (
-                  <Badge variant="outline" className="text-amber-500 border-amber-500/30 text-xs">
+                  <Badge variant="outline" className="text-amber-500 border-amber-500/30 text-xs font-mono">
                     Unsaved changes
                   </Badge>
                 )}
@@ -447,8 +477,7 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
 
               {/* Manager Roles */}
               <div className="space-y-2">
-                <Label className="text-sm font-medium flex items-center gap-1.5">
-                  <Shield className="size-3 text-muted-foreground" />
+                <Label className="text-sm font-medium">
                   Giveaway Manager Roles
                 </Label>
                 <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2.5 rounded-md border border-input bg-muted/20">
@@ -479,23 +508,12 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
                 </p>
               </div>
             </CardContent>
-            <CardFooter className="flex justify-end pt-2">
-              <Button
-                size="sm"
-                onClick={handleSaveConfig}
-                disabled={!isConfigDirty || isSavingConfig}
-              >
-                <Save className="size-3.5 mr-2" />
-                {isSavingConfig ? "Saving..." : "Save Settings"}
-              </Button>
-            </CardFooter>
           </Card>
 
           {/* Create Giveaway Card */}
           <Card className="border border-border/80 shadow-xs">
             <CardHeader className="pb-4">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Sparkles className="size-4 text-primary" />
+              <CardTitle className="text-base font-semibold">
                 Launch New Giveaway
               </CardTitle>
               <CardDescription>
@@ -728,8 +746,7 @@ export function GiveawaysClient({ guildId }: GiveawaysClientProps) {
           <Card className="border border-border/80 shadow-xs">
             <CardHeader className="pb-3 space-y-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Gift className="size-4 text-primary" />
+                <CardTitle className="text-base font-semibold">
                   Giveaway Explorer
                 </CardTitle>
                 <Badge variant="outline" className="text-xs font-mono">

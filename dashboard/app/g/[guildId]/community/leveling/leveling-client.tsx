@@ -4,7 +4,6 @@ import * as React from "react";
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
-  Trophy,
   AlertTriangle,
   RefreshCw,
   Sparkles,
@@ -15,8 +14,6 @@ import {
   RotateCcw,
   Info,
   Shield,
-  MessageSquare,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -439,57 +436,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
     toast.info("Unsaved changes discarded");
   };
 
-  // Discard XP settings to saved baseline
-  const handleDiscardXp = () => {
-    setXpMin(savedConfig.xp_min ?? 1);
-    setXpMax(savedConfig.xp_max ?? 30);
-    setCooldownSeconds(savedConfig.cooldown_seconds ?? 60);
-    setVoiceXpEnabled(savedConfig.voice_xp_enabled ?? true);
-    setVoiceXpPerMinute(savedConfig.voice_xp_per_minute ?? 30);
-    setFieldErrors((prev) => {
-      const next = { ...prev };
-      delete next.xp_min;
-      delete next.xp_max;
-      delete next.cooldown_seconds;
-      delete next.voice_xp_per_minute;
-      return next;
-    });
-    toast.info("XP settings reverted to saved");
-  };
-
-  // Discard Announcements settings to saved baseline
-  const handleDiscardAnnouncements = () => {
-    setAnnounceChannelId(savedConfig.announce_channel_id ?? null);
-    setAnnounceMessage(
-      savedConfig.announce_message ?? "{user} has leveled up to level {level}!"
-    );
-    setFieldErrors((prev) => {
-      const next = { ...prev };
-      delete next.announce_channel_id;
-      delete next.announce_message;
-      return next;
-    });
-    toast.info("Announcements reverted to saved");
-  };
-
-  // Discard Role Rewards to saved baseline
-  const handleDiscardRewards = () => {
-    const rewardsDict = savedConfig.rewards || {};
-    const rows: RewardRow[] = Object.entries(rewardsDict).map(([lvlStr, roleId]) => ({
-      id: Math.random().toString(36).substring(2, 9),
-      level: Number(lvlStr),
-      roleId: String(roleId),
-    }));
-    rows.sort((a, b) => Number(a.level) - Number(b.level));
-    setRewardRows(rows);
-    setFieldErrors((prev) => {
-      const next = { ...prev };
-      delete next.rewards;
-      return next;
-    });
-    toast.info("Role rewards reverted to saved");
-  };
-
   // Save changes
   const handleSave = async (sectionName?: string) => {
     const errors: Record<string, string> = {};
@@ -689,17 +635,16 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
   return (
     <div className="space-y-6">
       {/* 1. Status Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2.5">
-            <Trophy className="size-6 text-amber-500 shrink-0" />
             <h1 className="text-2xl font-bold tracking-tight">Leveling</h1>
             <Badge
               variant="outline"
               className={
                 enabled
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs"
-                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-xs font-mono"
+                  : "border-muted-foreground/30 bg-muted/40 text-muted-foreground text-xs font-mono"
               }
             >
               {enabled ? "Active" : "Disabled"}
@@ -711,40 +656,44 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
         </div>
 
         {/* Header Actions: Enabled Switch & Global Save */}
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
           {isDirty && (
             <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-400 flex items-center gap-1.5 mr-1 font-mono">
+                <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleDiscardChanges}
                 disabled={isSaving}
-                className="h-8 text-xs"
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
               >
-                <RotateCcw className="size-3.5 mr-1 text-muted-foreground" />
+                <RotateCcw className="size-3.5 mr-1" />
                 <span>Discard</span>
               </Button>
               <Button
                 size="sm"
                 onClick={() => handleSave()}
                 disabled={isSaving}
-                className="h-8 text-xs shadow-xs"
+                className="h-8 text-xs bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold shadow-xs"
               >
                 <Save className="size-3.5 mr-1" />
-                <span>{isSaving ? "Saving..." : "Save All"}</span>
+                <span>{isSaving ? "Saving..." : "Save Changes"}</span>
               </Button>
             </div>
           )}
 
           <div className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-1.5 shadow-2xs">
             <Label
-              htmlFor="leveling-enabled-toggle"
+              htmlFor="leveling-master-switch"
               className="text-xs font-medium cursor-pointer text-foreground"
             >
-              Module Enabled
+              {enabled ? "Module Enabled" : "Module Disabled"}
             </Label>
             <Switch
-              id="leveling-enabled-toggle"
+              id="leveling-master-switch"
               checked={enabled}
               disabled={isTogglingState}
               onCheckedChange={handleToggleEnabled}
@@ -778,7 +727,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Zap className="size-4 text-muted-foreground" />
                 <CardTitle className="text-base font-semibold">XP Settings</CardTitle>
                 {isXpDirty && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-medium ml-1">
@@ -812,10 +760,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
                     : "Disabled",
                 },
               ]}
-              isDirty={isXpDirty}
-              isSaving={isSaving}
-              onSave={() => handleSave("XP settings")}
-              onDiscard={handleDiscardXp}
             />
 
             {/* XP Range (Min / Max) */}
@@ -974,19 +918,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
               )}
             </div>
           </CardContent>
-
-          <CardFooter className="flex items-center justify-between border-t border-border/60 pt-4 flex-wrap gap-2">
-            <div className="text-xs text-muted-foreground">
-              {isXpDirty ? "Changes uncommitted" : "Synced with bot"}
-            </div>
-            <Button
-              size="sm"
-              disabled={!isXpDirty || isSaving}
-              onClick={() => handleSave("XP settings")}
-            >
-              {isSaving ? "Saving..." : "Save XP Settings"}
-            </Button>
-          </CardFooter>
         </Card>
 
         {/* 3. Announcements Card */}
@@ -994,7 +925,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <MessageSquare className="size-4 text-muted-foreground" />
                 <CardTitle className="text-base font-semibold">Announcements</CardTitle>
                 {isAnnouncementsDirty && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-medium ml-1">
@@ -1030,10 +960,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
                     : "{user} has leveled up to level {level}!",
                 },
               ]}
-              isDirty={isAnnouncementsDirty}
-              isSaving={isSaving}
-              onSave={() => handleSave("Announcements")}
-              onDiscard={handleDiscardAnnouncements}
             />
 
             {/* Channel Select with 'Same channel' none option */}
@@ -1160,19 +1086,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
               </p>
             </div>
           </CardContent>
-
-          <CardFooter className="flex items-center justify-between border-t border-border/60 pt-4 flex-wrap gap-2">
-            <div className="text-xs text-muted-foreground">
-              {isAnnouncementsDirty ? "Changes uncommitted" : "Synced with bot"}
-            </div>
-            <Button
-              size="sm"
-              disabled={!isAnnouncementsDirty || isSaving}
-              onClick={() => handleSave("Announcements")}
-            >
-              {isSaving ? "Saving..." : "Save Announcements"}
-            </Button>
-          </CardFooter>
         </Card>
 
         {/* 4. Role Rewards Card */}
@@ -1180,7 +1093,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Shield className="size-4 text-muted-foreground" />
                 <CardTitle className="text-base font-semibold">Role Rewards</CardTitle>
                 {isRewardsDirty && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-medium ml-1">
@@ -1245,10 +1157,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
                     ]
                   : []),
               ]}
-              isDirty={isRewardsDirty}
-              isSaving={isSaving}
-              onSave={() => handleSave("Role rewards")}
-              onDiscard={handleDiscardRewards}
             />
 
             {fieldErrors["rewards"] && (
@@ -1427,19 +1335,6 @@ export function LevelingClient({ guildId }: LevelingClientProps) {
               </div>
             )}
           </CardContent>
-
-          <CardFooter className="flex items-center justify-between border-t border-border/60 pt-4 flex-wrap gap-2">
-            <div className="text-xs text-muted-foreground">
-              {isRewardsDirty ? "Changes uncommitted" : "Synced with bot"}
-            </div>
-            <Button
-              size="sm"
-              disabled={!isRewardsDirty || isSaving}
-              onClick={() => handleSave("Role rewards")}
-            >
-              {isSaving ? "Saving..." : "Save Role Rewards"}
-            </Button>
-          </CardFooter>
         </Card>
       </div>
     </div>
