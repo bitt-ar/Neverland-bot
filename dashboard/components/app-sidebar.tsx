@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   Award,
   Gift,
   LayoutDashboard,
@@ -12,7 +13,7 @@ import {
   ServerCog,
   ShieldCheck,
   Tags,
-  Terminal,
+  Workflow,
   Ticket,
   UserPlus,
   Volume2,
@@ -206,7 +207,7 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
           {
             title: "Custom Commands & Menus",
             href: guildHref("automation/custom-commands"),
-            icon: Terminal,
+            icon: Workflow,
             isActive: subPath.startsWith("/automation/custom-commands"),
           },
         ],
@@ -249,7 +250,7 @@ export function AppSidebar({ isAdmin, ...props }: AppSidebarProps) {
           {
             title: "Diagnostics & Health",
             href: "/settings",
-            icon: Terminal,
+            icon: Activity,
             isActive: pathname === "/settings",
           },
         ],

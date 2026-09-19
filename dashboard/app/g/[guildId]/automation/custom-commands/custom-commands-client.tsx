@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Terminal,
+  Zap,
   Plus,
   Trash2,
   Edit2,
@@ -598,7 +598,7 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
       <Tabs defaultValue="commands" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
           <TabsTrigger value="commands" className="flex items-center gap-2">
-            <Terminal className="h-4 w-4" />
+            <Zap className="h-4 w-4" />
             Custom Commands ({commands.length})
           </TabsTrigger>
           <TabsTrigger value="dropdowns" className="flex items-center gap-2">
@@ -625,7 +625,7 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
           {filteredCommands.length === 0 ? (
             <Card className="text-center py-12">
               <CardContent className="space-y-3">
-                <Terminal className="h-10 w-10 text-muted-foreground mx-auto" />
+                <Zap className="h-10 w-10 text-muted-foreground mx-auto" />
                 <h3 className="font-semibold text-lg">No custom commands yet</h3>
                 <p className="text-sm text-muted-foreground max-w-sm mx-auto">
                   Create custom commands that respond with embeds, assign roles, or execute multi-action workflows.
@@ -868,10 +868,10 @@ export function CustomCommandsClient({ guildId }: CustomCommandsClientProps) {
                     if (val) setCmdTriggerType(val as "prefix" | "exact" | "contains");
                   }}
                 >
-                  <SelectTrigger id="cmd-type">
+                  <SelectTrigger id="cmd-type" className="w-full h-9">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-64">
                     <SelectItem value="prefix">Prefix Command ({prefix}cmd)</SelectItem>
                     <SelectItem value="exact">Exact Message Match</SelectItem>
                     <SelectItem value="contains">Message Contains Word</SelectItem>
