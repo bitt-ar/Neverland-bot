@@ -179,23 +179,30 @@ def activate_profile(mode: str):
     # Write bot root .env
     write_env_file(BOT_ENV_FILE, profile_data, header=f"Active Profile: {mode.upper()}")
     
-    # Write dashboard .env.local
+    dash_port = str(profile_data.get("PORT", "3000"))
+    dash_url = str(profile_data.get("NEXT_PUBLIC_APP_URL") or f"http://localhost:{dash_port}")
+    redirect_uri = str(profile_data.get("DISCORD_REDIRECT_URI") or f"{dash_url.rstrip('/')}/api/auth/callback/discord")
+
     dashboard_data = {
         "TOKEN": profile_data.get("TOKEN", ""),
         "DISCORD_CLIENT_ID": profile_data.get("DISCORD_CLIENT_ID", ""),
         "DISCORD_CLIENT_SECRET": profile_data.get("DISCORD_CLIENT_SECRET", ""),
-        "DISCORD_REDIRECT_URI": profile_data.get("DISCORD_REDIRECT_URI") or f"{profile_data.get('NEXT_PUBLIC_APP_URL', 'http://localhost:3000').rstrip('/')}/api/auth/callback/discord",
+        "DISCORD_REDIRECT_URI": redirect_uri,
         "MONGODB_URI": profile_data.get("MONGODB_URI", "mongodb://localhost:27017"),
         "MONGODB_DB": profile_data.get("MONGODB_DB", "neverland"),
         "CONTROL_PLANE_PORT": profile_data.get("CONTROL_PLANE_PORT", "8800"),
+        "CONTROL_PLANE_HOST": profile_data.get("CONTROL_PLANE_HOST", "0.0.0.0"),
         "CONTROL_PLANE_SECRET": profile_data.get("CONTROL_PLANE_SECRET", ""),
-        "CONTROL_PLANE_URL": f"http://127.0.0.1:{profile_data.get('CONTROL_PLANE_PORT', '8800')}",
+        "CONTROL_PLANE_URL": profile_data.get("CONTROL_PLANE_URL") or f"http://127.0.0.1:{profile_data.get('CONTROL_PLANE_PORT', '8800')}",
         "GUILD_ID": profile_data.get("GUILD_ID", ""),
-        "NEXT_PUBLIC_APP_URL": profile_data.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000"),
+        "NEXT_PUBLIC_APP_URL": dash_url,
         "AUTH_ENABLED": profile_data.get("AUTH_ENABLED", "true"),
         "DASHBOARD_SESSION_SECRET": profile_data.get("DASHBOARD_SESSION_SECRET", ""),
         "OWNER_DISCORD_ID": profile_data.get("OWNER_DISCORD_ID", ""),
         "ADMIN_DISCORD_IDS": profile_data.get("ADMIN_DISCORD_IDS", ""),
+        "DEV_USER_ID": profile_data.get("DEV_USER_ID", profile_data.get("OWNER_DISCORD_ID", "")),
+        "PORT": dash_port,
+        "HOSTNAME": profile_data.get("HOSTNAME", "0.0.0.0"),
     }
     write_env_file(DASHBOARD_ENV_FILE, dashboard_data, header=f"Active Profile: {mode.upper()} for Next.js 15")
     
@@ -221,14 +228,14 @@ def cmd_config(args):
     if not mode:
         print(f"{Colors.BOLD}Please select your deployment mode:{Colors.RESET}\n")
         print(f"  {Colors.BOLD}[1] Development Mode (`dev`){Colors.RESET}")
-        print(f"      - {Colors.DIM}Ideal for local testing on your PC{Colors.RESET}")
-        print(f"      - {Colors.DIM}Bypasses public OAuth; accesses dashboard directly via local GUILD_ID{Colors.RESET}")
-        print(f"      - {Colors.DIM}Runs Dashboard on http://localhost:3000{Colors.RESET}")
+        print(f"      - {Colors.DIM}Ideal for local testing and direct network access{Colors.RESET}")
+        print(f"      - {Colors.DIM}Direct dashboard access with dynamic multi-server discovery (no OAuth required){Colors.RESET}")
+        print(f"      - {Colors.DIM}Binds to 0.0.0.0 on configurable port for immediate network deployment{Colors.RESET}")
         print(f"      - {Colors.DIM}Auto-generates all cryptographic keys locally{Colors.RESET}\n")
         print(f"  {Colors.BOLD}[2] Production / Server Mode (`prod`){Colors.RESET}")
-        print(f"      - {Colors.DIM}Designed for VPS / Cloud Servers with a public domain{Colors.RESET}")
+        print(f"      - {Colors.DIM}Designed for VPS / Cloud Servers with a public domain or IP{Colors.RESET}")
         print(f"      - {Colors.DIM}Full Discord OAuth2 user authentication and role-based permissions{Colors.RESET}")
-        print(f"      - {Colors.DIM}Supports custom domains (e.g. https://dashboard.yourdomain.com){Colors.RESET}")
+        print(f"      - {Colors.DIM}Supports custom domains or direct IP (e.g. http://IP:PORT){Colors.RESET}")
         print(f"      - {Colors.DIM}Hardened security keys & SSL reverse proxy compatibility{Colors.RESET}\n")
 
         choice = prompt_input("Select mode (1 for dev, 2 for prod)", default="1" if current_active == "dev" else "2")
@@ -251,34 +258,44 @@ def cmd_config(args):
     new_cfg["TOKEN"] = prompt_input("Discord Bot Token", default=existing.get("TOKEN", ""), secret=True, required=True)
     new_cfg["PREFIX"] = prompt_input("Legacy Command Prefix", default=existing.get("PREFIX", "!"))
 
+    # Network Ports & Host Binding (Universal 0.0.0.0)
+    print(f"\n{Colors.BOLD}--- 2. Network Ports & Host Binding ---{Colors.RESET}")
+    print(f"{Colors.DIM}Binding to 0.0.0.0 enables direct access from your server's IP address.{Colors.RESET}")
+    new_cfg["PORT"] = prompt_input("Web Dashboard Port", default=existing.get("PORT", "3000"))
+    new_cfg["HOSTNAME"] = "0.0.0.0"
+    new_cfg["CONTROL_PLANE_PORT"] = prompt_input("Bot Control Plane Internal Port", default=existing.get("CONTROL_PLANE_PORT", "8800"))
+    new_cfg["CONTROL_PLANE_HOST"] = "0.0.0.0"
+    new_cfg["CONTROL_PLANE_URL"] = f"http://127.0.0.1:{new_cfg['CONTROL_PLANE_PORT']}"
+
     if mode == "dev":
-        print(f"\n{Colors.BOLD}--- 2. Development Guild & Direct Access ---{Colors.RESET}")
-        print(f"{Colors.DIM}Development mode uses GUILD_ID to register slash commands instantly and test the dashboard.{Colors.RESET}")
-        new_cfg["GUILD_ID"] = prompt_input("Test Discord Guild/Server ID", default=existing.get("GUILD_ID", ""), required=True)
-        new_cfg["NEXT_PUBLIC_APP_URL"] = "http://localhost:3000"
+        print(f"\n{Colors.BOLD}--- 3. Administrator Access (Dev Mode) ---{Colors.RESET}")
+        print(f"{Colors.DIM}Development mode bypasses OAuth and dynamically discovers all servers the bot is in.{Colors.RESET}")
+        admin_id = prompt_input("Your Discord User ID (Bot Owner / Admin)", default=existing.get("ADMIN_DISCORD_IDS", existing.get("OWNER_DISCORD_ID", "")))
+        new_cfg["ADMIN_DISCORD_IDS"] = admin_id
+        new_cfg["OWNER_DISCORD_ID"] = admin_id
+        new_cfg["DEV_USER_ID"] = admin_id
+        new_cfg["NEXT_PUBLIC_APP_URL"] = existing.get("NEXT_PUBLIC_APP_URL", f"http://localhost:{new_cfg['PORT']}")
+        new_cfg["DISCORD_REDIRECT_URI"] = f"{new_cfg['NEXT_PUBLIC_APP_URL'].rstrip('/')}/api/auth/callback/discord"
         new_cfg["AUTH_ENABLED"] = "false"
+        new_cfg["GUILD_ID"] = existing.get("GUILD_ID", "")
         new_cfg["DISCORD_CLIENT_ID"] = existing.get("DISCORD_CLIENT_ID", "")
         new_cfg["DISCORD_CLIENT_SECRET"] = existing.get("DISCORD_CLIENT_SECRET", "")
-        new_cfg["DISCORD_REDIRECT_URI"] = "http://localhost:3000/api/auth/callback/discord"
-        new_cfg["ADMIN_DISCORD_IDS"] = prompt_input("Your Discord User ID (Admin)", default=existing.get("ADMIN_DISCORD_IDS", ""))
-        new_cfg["OWNER_DISCORD_ID"] = new_cfg["ADMIN_DISCORD_IDS"]
 
     else:  # prod mode
-        print(f"\n{Colors.BOLD}--- 2. Production Discord OAuth2 Credentials ---{Colors.RESET}")
+        print(f"\n{Colors.BOLD}--- 3. Production Discord OAuth2 Credentials ---{Colors.RESET}")
         print(f"{Colors.DIM}Required for server owners and moderators to log into your web dashboard.{Colors.RESET}")
         new_cfg["DISCORD_CLIENT_ID"] = prompt_input("Discord Client ID", default=existing.get("DISCORD_CLIENT_ID", ""), required=True)
         new_cfg["DISCORD_CLIENT_SECRET"] = prompt_input("Discord Client Secret", default=existing.get("DISCORD_CLIENT_SECRET", ""), secret=True, required=True)
 
-        print(f"\n{Colors.BOLD}--- 3. Server Domain & Dashboard Public URL ---{Colors.RESET}")
-        print(f"{Colors.DIM}e.g. https://dashboard.yourdomain.com or http://YOUR_SERVER_IP:3000{Colors.RESET}")
-        domain_url = prompt_input("Public Dashboard URL", default=existing.get("NEXT_PUBLIC_APP_URL", "https://dashboard.yourdomain.com"), required=True)
+        print(f"\n{Colors.BOLD}--- 4. Public URL & Access Control ---{Colors.RESET}")
+        print(f"{Colors.DIM}e.g. https://dashboard.yourdomain.com or http://YOUR_SERVER_IP:{new_cfg['PORT']}{Colors.RESET}")
+        default_domain = existing.get("NEXT_PUBLIC_APP_URL", f"http://YOUR_SERVER_IP:{new_cfg['PORT']}")
+        domain_url = prompt_input("Public Dashboard URL", default=default_domain, required=True)
         domain_url = domain_url.rstrip("/")
         new_cfg["NEXT_PUBLIC_APP_URL"] = domain_url
         new_cfg["DISCORD_REDIRECT_URI"] = f"{domain_url}/api/auth/callback/discord"
         new_cfg["AUTH_ENABLED"] = "true"
         new_cfg["GUILD_ID"] = existing.get("GUILD_ID", "")
-
-        print(f"\n{Colors.BOLD}--- 4. Access Control ---{Colors.RESET}")
         new_cfg["OWNER_DISCORD_ID"] = prompt_input("Bot Owner Discord User ID (optional, auto-detected)", default=existing.get("OWNER_DISCORD_ID", ""))
         new_cfg["ADMIN_DISCORD_IDS"] = prompt_input("Admin Discord User IDs (comma-separated)", default=existing.get("ADMIN_DISCORD_IDS", ""))
 
@@ -287,11 +304,6 @@ def cmd_config(args):
     print(f"{Colors.DIM}Local: mongodb://localhost:27017 | Atlas: mongodb+srv://...{Colors.RESET}")
     new_cfg["MONGODB_URI"] = prompt_input("MongoDB URI", default=existing.get("MONGODB_URI", "mongodb://localhost:27017"), required=True)
     new_cfg["MONGODB_DB"] = prompt_input("MongoDB Database Name", default=existing.get("MONGODB_DB", "neverland"))
-
-    # Control Plane & Internal IPC
-    new_cfg["CONTROL_PLANE_HOST"] = "127.0.0.1"
-    new_cfg["CONTROL_PLANE_PORT"] = existing.get("CONTROL_PLANE_PORT", "8800")
-    new_cfg["CONTROL_PLANE_URL"] = f"http://127.0.0.1:{new_cfg['CONTROL_PLANE_PORT']}"
 
     # Auto-generate or preserve cryptographic secrets
     new_cfg["CONTROL_PLANE_SECRET"] = existing.get("CONTROL_PLANE_SECRET") or secrets.token_hex(32)
@@ -415,6 +427,11 @@ def cmd_start(args):
             print(f"  {Colors.YELLOW}Building Next.js 15 production bundle...{Colors.RESET}")
             subprocess.run([runner, "run", "build"], cwd=str(DASHBOARD_DIR), env=env, check=False)
 
+        dash_port = str(env_vars.get("PORT", "3000"))
+        dash_host = str(env_vars.get("HOSTNAME", "0.0.0.0"))
+        env["PORT"] = dash_port
+        env["HOSTNAME"] = dash_host
+
         dash_cmd = [runner, "run", dash_script]
         if platform.system() == "Windows":
             dash_cmd = ["cmd", "/c"] + dash_cmd
@@ -435,10 +452,12 @@ def cmd_start(args):
         "started_at": time.strftime("%Y-%m-%d %H:%M:%S")
     })
 
-    app_url = env_vars.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+    dash_port = env_vars.get("PORT", "3000")
+    app_url = env_vars.get("NEXT_PUBLIC_APP_URL") or f"http://localhost:{dash_port}"
+    cp_port = env_vars.get("CONTROL_PLANE_PORT", "8800")
     print(f"\n{Colors.BOLD}{Colors.GREEN}[OK] Neverland is operational.{Colors.RESET}")
-    print(f"  Web Dashboard: {Colors.CYAN}{app_url}{Colors.RESET}")
-    print(f"  Bot Control Plane: {Colors.DIM}http://127.0.0.1:{env_vars.get('CONTROL_PLANE_PORT', '8800')}{Colors.RESET}\n")
+    print(f"  Web Dashboard: {Colors.CYAN}{app_url}{Colors.RESET} (listening on 0.0.0.0:{dash_port})")
+    print(f"  Bot Control Plane: {Colors.DIM}http://127.0.0.1:{cp_port}{Colors.RESET} (listening on 0.0.0.0:{cp_port})\n")
 
     if is_daemon:
         print(f"To monitor logs: {Colors.BOLD}neverland logs -f{Colors.RESET}")
@@ -609,13 +628,13 @@ def cmd_domain(args):
     sub = args.proxy_type or "nginx"
     env_vars = load_env_dict(BOT_ENV_FILE)
     domain = args.domain or env_vars.get("NEXT_PUBLIC_APP_URL", "https://dashboard.yourdomain.com").replace("https://", "").replace("http://", "").split(":")[0]
-    port = args.port or 3000
+    port = args.port or int(env_vars.get("PORT", "3000"))
 
     print(f"\n{Colors.BOLD}{Colors.CYAN}--- REVERSE PROXY & DOMAIN CONFIGURATION BUILDER ---{Colors.RESET}\n")
 
     if sub == "nginx":
         nginx_conf = f"""# Neverland Dashboard Nginx Configuration
-# Created with ❤️ by bitt-ar | Support: https://ko-fi.com/E1E41CVWBU
+# Created by bitt-ar | Support: https://ko-fi.com/E1E41CVWBU
 
 server {{
     listen 80;
@@ -642,7 +661,7 @@ server {{
 
     elif sub == "caddy":
         caddy_conf = f"""# Neverland Caddyfile Configuration (Automatic HTTPS via Let's Encrypt)
-# Created with ❤️ by bitt-ar | Support: https://ko-fi.com/E1E41CVWBU
+# Created by bitt-ar | Support: https://ko-fi.com/E1E41CVWBU
 
 {domain} {{
     reverse_proxy 127.0.0.1:{port}

@@ -66,8 +66,8 @@ The platform provides a unified CLI (`neverland`) to manage configuration, runti
 
 Neverland enforces strict profile separation between development and production setups:
 
-- **Development (`dev`)**: Configured for local guild testing (`GUILD_ID`), binds to `localhost:3000`, bypasses public Discord OAuth2. Saved in `.neverland/profiles/dev.env`.
-- **Production (`prod`)**: Configured for public domains, full Discord OAuth2 authentication, hardened session cookies, and reverse proxy compatibility. Saved in `.neverland/profiles/prod.env`.
+- **Development (`dev`)**: Direct access with dynamic multi-server discovery, binds to `0.0.0.0:3000` (or custom port), bypasses public Discord OAuth2. Saved in `.neverland/profiles/dev.env`.
+- **Production (`prod`)**: Public domain or server IP access with full Discord OAuth2 authentication, hardened session cookies, binds to `0.0.0.0` with reverse proxy compatibility. Saved in `.neverland/profiles/prod.env`.
 
 Switching modes activates the selected profile without overwriting or leaking variables from the other environment.
 

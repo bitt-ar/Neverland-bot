@@ -15,7 +15,7 @@ PREFIX = os.getenv("PREFIX") or "!"
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGODB_DB = os.getenv("MONGODB_DB", "neverland")
 
-CONTROL_PLANE_HOST = os.getenv("CONTROL_PLANE_HOST", "127.0.0.1")
+CONTROL_PLANE_HOST = os.getenv("CONTROL_PLANE_HOST", "0.0.0.0")
 try:
     CONTROL_PLANE_PORT = int(os.getenv("CONTROL_PLANE_PORT", "8800"))
 except ValueError:

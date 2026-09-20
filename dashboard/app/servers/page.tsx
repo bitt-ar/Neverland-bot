@@ -38,6 +38,7 @@ export default async function ServersPage() {
   const isOwner = Boolean(user?.isOwner);
   const userIds = user?.id ? user.id.split(",").map((s) => s.trim()) : [];
   const visibleGuilds = allGuilds.filter((g) => {
+    if (!isAuthEnabled() || isOwner) return true;
     if (g.is_admin === true) return true;
     if (userIds.includes(g.owner_id)) return true;
     return false;
