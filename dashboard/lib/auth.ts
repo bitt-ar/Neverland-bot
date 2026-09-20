@@ -322,8 +322,7 @@ export function createRedirectUrl(destination: string, request?: { headers?: { g
 }
 
 export function getDiscordOAuthUrl(state?: string, request?: { headers?: { get: (name: string) => string | null }; url?: string }): string {
-  const clientId =
-    process.env.DISCORD_CLIENT_ID || "1334146880330010644";
+  const clientId = process.env.DISCORD_CLIENT_ID || "";
   const redirectUri =
     process.env.DISCORD_REDIRECT_URI ||
     `${getAppBaseUrl(request)}/api/auth/callback/discord`;
@@ -371,7 +370,7 @@ export async function exchangeDiscordCode(
   code: string,
   redirectUri: string
 ): Promise<DiscordTokenResponse> {
-  const clientId = process.env.DISCORD_CLIENT_ID || "1334146880330010644";
+  const clientId = process.env.DISCORD_CLIENT_ID || "";
   const clientSecret = process.env.DISCORD_CLIENT_SECRET || "";
 
   const body = new URLSearchParams({

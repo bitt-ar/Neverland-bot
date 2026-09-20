@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Info, PlusCircle, Server, Users } from "lucide-react";
 
-import { getGuilds, GuildSummary } from "@/lib/control-plane";
+import { getBotInfo, getGuilds, GuildSummary } from "@/lib/control-plane";
 import { getCurrentUser, isAuthEnabled } from "@/lib/auth";
 import {
   Card,
@@ -44,9 +44,21 @@ export default async function ServersPage() {
     return false;
   });
 
-  const botInviteUrl = `https://discord.com/oauth2/authorize?client_id=${
-    process.env.DISCORD_CLIENT_ID || "1334146880330010644"
-  }&permissions=8&scope=bot+applications.commands`;
+  // Resolve the invite client ID dynamically from the live bot (its user ID
+  // equals the application ID), falling back to the configured env value so the
+  // link always targets the bot this dashboard is actually paired with.
+  let botClientId: string | null = null;
+  try {
+    botClientId = (await getBotInfo()).id || null;
+  } catch {
+    botClientId = null;
+  }
+  if (!botClientId) {
+    botClientId = process.env.DISCORD_CLIENT_ID || null;
+  }
+  const botInviteUrl = botClientId
+    ? `https://discord.com/oauth2/authorize?client_id=${botClientId}&permissions=8&scope=bot+applications.commands`
+    : null;
 
   return (
     <div className="space-y-6 font-sans">
@@ -68,15 +80,17 @@ export default async function ServersPage() {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-xs gap-1.5 self-start sm:self-auto"
-          render={<a href={botInviteUrl} target="_blank" rel="noreferrer" />}
-        >
-          <PlusCircle className="size-3.5" />
-          <span>Invite Bot</span>
-        </Button>
+        {botInviteUrl && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5 self-start sm:self-auto"
+            render={<a href={botInviteUrl} target="_blank" rel="noreferrer" />}
+          >
+            <PlusCircle className="size-3.5" />
+            <span>Invite Bot</span>
+          </Button>
+        )}
       </div>
 
       {error ? (
@@ -107,13 +121,15 @@ export default async function ServersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              className="text-xs gap-1.5"
-              render={<a href={botInviteUrl} target="_blank" rel="noreferrer" />}
-            >
-              <PlusCircle className="size-3.5" />
-              <span>Invite Neverland Bot</span>
-            </Button>
+            {botInviteUrl && (
+              <Button
+                className="text-xs gap-1.5"
+                render={<a href={botInviteUrl} target="_blank" rel="noreferrer" />}
+              >
+                <PlusCircle className="size-3.5" />
+                <span>Invite Neverland Bot</span>
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
