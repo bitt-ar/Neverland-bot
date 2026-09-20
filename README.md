@@ -13,6 +13,8 @@ Enterprise Discord Automation Platform and Next.js 15 Web Dashboard
 
 Neverland is an all-in-one Discord automation platform designed for performance, modularity, and administration. It combines an asynchronous Python Discord bot core with a Next.js 15 web dashboard styled using Supabase design principles and an integrated cross-platform CLI.
 
+![Neverland Dashboard Overview](assets/dashboard-preview.png)
+
 ---
 
 ## Quickstart
