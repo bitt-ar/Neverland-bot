@@ -258,6 +258,30 @@ export async function getBotInfo(): Promise<BotInfo> {
   return data;
 }
 
+/**
+ * Build the OAuth invite URL for the bot this dashboard is paired with.
+ * The client ID is resolved from the live bot (its user ID equals the
+ * application ID), falling back to DISCORD_CLIENT_ID. Returns null when
+ * neither is available, so callers can hide invite CTAs entirely.
+ */
+export async function getBotInviteUrl(guildId?: string): Promise<string | null> {
+  let clientId: string | null = null;
+  try {
+    clientId = (await getBotInfo()).id || null;
+  } catch {
+    clientId = null;
+  }
+  if (!clientId) {
+    clientId = process.env.DISCORD_CLIENT_ID || null;
+  }
+  if (!clientId) return null;
+  let url = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot+applications.commands`;
+  if (guildId) {
+    url += `&guild_id=${encodeURIComponent(guildId)}&disable_guild_select=true`;
+  }
+  return url;
+}
+
 export interface BotStats {
   guild_count: number;
   total_members: number;

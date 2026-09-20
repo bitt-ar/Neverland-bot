@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Info, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Info, PlusCircle, ShieldAlert } from "lucide-react";
 
-import { ControlPlaneError, getGuildOverview } from "@/lib/control-plane";
+import { ControlPlaneError, getBotInviteUrl, getGuildOverview } from "@/lib/control-plane";
 import { getCurrentUser, isAuthEnabled } from "@/lib/auth";
 import {
   Card,
@@ -94,6 +94,7 @@ export async function checkGuildAccess(guildId: string) {
     const message =
       err instanceof Error ? err.message : "Failed to connect to control plane";
     const notFound = status === 404;
+    const inviteUrl = notFound ? await getBotInviteUrl(guildId) : null;
 
     return (
       <div className="space-y-6">
@@ -123,7 +124,7 @@ export async function checkGuildAccess(guildId: string) {
             </div>
             <CardDescription className={notFound ? "" : "text-destructive/80"}>
               {notFound
-                ? `The bot is not a member of guild ${guildId}. Pick one of the servers the bot is in instead.`
+                ? `The bot is not a member of guild ${guildId}. Invite it to this server, or pick one of the servers it is already in.`
                 : `Could not verify guild ${guildId} against the control plane.`}
             </CardDescription>
           </CardHeader>
@@ -137,6 +138,15 @@ export async function checkGuildAccess(guildId: string) {
               <ArrowLeft className="size-3.5" />
               <span>All Servers</span>
             </Button>
+            {notFound && inviteUrl && (
+              <Button
+                size="sm"
+                render={<a href={inviteUrl} target="_blank" rel="noreferrer" />}
+              >
+                <PlusCircle className="size-3.5" />
+                <span>Invite Bot to This Server</span>
+              </Button>
+            )}
             {!notFound && (
               <RetryButton checkPath={`/api/internal/guilds/${guildId}/overview`} />
             )}

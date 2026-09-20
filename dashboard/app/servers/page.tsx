@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Info, PlusCircle, Server, Users } from "lucide-react";
 
-import { getBotInfo, getGuilds, GuildSummary } from "@/lib/control-plane";
+import { getBotInviteUrl, getGuilds, GuildSummary } from "@/lib/control-plane";
 import { getCurrentUser, isAuthEnabled } from "@/lib/auth";
 import {
   Card,
@@ -44,21 +44,7 @@ export default async function ServersPage() {
     return false;
   });
 
-  // Resolve the invite client ID dynamically from the live bot (its user ID
-  // equals the application ID), falling back to the configured env value so the
-  // link always targets the bot this dashboard is actually paired with.
-  let botClientId: string | null = null;
-  try {
-    botClientId = (await getBotInfo()).id || null;
-  } catch {
-    botClientId = null;
-  }
-  if (!botClientId) {
-    botClientId = process.env.DISCORD_CLIENT_ID || null;
-  }
-  const botInviteUrl = botClientId
-    ? `https://discord.com/oauth2/authorize?client_id=${botClientId}&permissions=8&scope=bot+applications.commands`
-    : null;
+  const botInviteUrl = await getBotInviteUrl();
 
   return (
     <div className="space-y-6 font-sans">
