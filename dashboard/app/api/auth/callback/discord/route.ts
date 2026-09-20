@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   canManageGuild,
+  createRedirectUrl,
   createUserSessionToken,
   exchangeDiscordCode,
   fetchDiscordGuilds,
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get("error");
 
   if (error || !code) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = createRedirectUrl("/login", request);
     loginUrl.searchParams.set("error", error || "authorization_denied");
     return NextResponse.redirect(loginUrl);
   }
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   if (rawState.includes(":")) {
     const [tokenPart, destPart] = rawState.split(":", 2);
     if (!stateCookie || tokenPart !== stateCookie) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = createRedirectUrl("/login", request);
       loginUrl.searchParams.set("error", "csrf_validation_failed");
       return NextResponse.redirect(loginUrl);
     }
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   } else if (rawState) {
     // If state was sent without token separator, ensure it matches cookie if present
     if (stateCookie && rawState !== stateCookie) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = createRedirectUrl("/login", request);
       loginUrl.searchParams.set("error", "csrf_validation_failed");
       return NextResponse.redirect(loginUrl);
     }
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
 
   const redirectUri =
     process.env.DISCORD_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/auth/callback/discord`;
+    createRedirectUrl("/api/auth/callback/discord", request).toString();
 
   try {
     // 1. Exchange code for access token
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
         ? "/overview"
         : "/servers";
 
-    const response = NextResponse.redirect(new URL(destination, request.url));
+    const response = NextResponse.redirect(createRedirectUrl(destination, request));
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
     // Clear the one-time OAuth state cookie
     response.cookies.delete(OAUTH_STATE_COOKIE);
@@ -112,7 +113,7 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (err: unknown) {
     console.error("OAuth Discord callback failure:", err);
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = createRedirectUrl("/login", request);
     loginUrl.searchParams.set("error", "oauth_exchange_failed");
     return NextResponse.redirect(loginUrl);
   }

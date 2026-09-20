@@ -261,12 +261,72 @@ export function sanitizeRedirectPath(path: string | null | undefined): string {
   }
 }
 
-export function getDiscordOAuthUrl(state?: string): string {
+/**
+ * Dynamically resolves the canonical public base URL of the dashboard.
+ * Prioritizes:
+ * 1. Forwarded headers from reverse proxies (X-Forwarded-Host, X-Forwarded-Proto)
+ * 2. NEXT_PUBLIC_APP_URL if configured and not pointing to internal 0.0.0.0
+ * 3. DISCORD_REDIRECT_URI origin
+ * 4. Request URL origin (if not 0.0.0.0)
+ * 5. Fallback localhost
+ */
+export function getAppBaseUrl(request?: { headers?: { get: (name: string) => string | null }; url?: string }): string {
+  // 1. Check request headers first (dynamically adapts to reverse proxy, subdomain, Cloudflare, etc.)
+  if (request?.headers) {
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const host = forwardedHost || request.headers.get("host");
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+
+    if (host && !host.startsWith("0.0.0.0") && !host.startsWith("127.0.0.1")) {
+      return `${proto}://${host}`;
+    }
+  }
+
+  // 2. Check NEXT_PUBLIC_APP_URL environment variable
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envUrl && !envUrl.includes("0.0.0.0") && !envUrl.includes("127.0.0.1")) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  // 3. Check DISCORD_REDIRECT_URI origin
+  if (process.env.DISCORD_REDIRECT_URI) {
+    try {
+      const parsed = new URL(process.env.DISCORD_REDIRECT_URI);
+      if (!parsed.hostname.startsWith("0.0.0.0") && !parsed.hostname.startsWith("127.0.0.1")) {
+        return parsed.origin;
+      }
+    } catch {}
+  }
+
+  // 4. Request URL origin fallback if valid and not 0.0.0.0
+  if (request?.url) {
+    try {
+      const url = new URL(request.url);
+      if (!url.hostname.startsWith("0.0.0.0") && !url.hostname.startsWith("127.0.0.1")) {
+        return url.origin;
+      }
+    } catch {}
+  }
+
+  return envUrl ? envUrl.replace(/\/+$/, "") : "http://localhost:3000";
+}
+
+/**
+ * Creates an absolute URL for redirects that is guaranteed to point to the
+ * valid public domain, preventing redirects to internal binding addresses like 0.0.0.0.
+ */
+export function createRedirectUrl(destination: string, request?: { headers?: { get: (name: string) => string | null }; url?: string }): URL {
+  const base = getAppBaseUrl(request);
+  const cleanPath = destination.startsWith("/") ? destination : `/${destination}`;
+  return new URL(cleanPath, base);
+}
+
+export function getDiscordOAuthUrl(state?: string, request?: { headers?: { get: (name: string) => string | null }; url?: string }): string {
   const clientId =
     process.env.DISCORD_CLIENT_ID || "1334146880330010644";
   const redirectUri =
     process.env.DISCORD_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/auth/callback/discord`;
+    `${getAppBaseUrl(request)}/api/auth/callback/discord`;
 
   const params = new URLSearchParams({
     client_id: clientId,

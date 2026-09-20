@@ -909,16 +909,22 @@ server {{
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
         proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }}
 }}
 """
-        print(f"{Colors.BOLD}1. Save this config to:{Colors.RESET} {Colors.CYAN}/etc/nginx/sites-available/neverland{Colors.RESET}\n")
+        is_rhel = Path("/etc/nginx/conf.d").exists() and not Path("/etc/nginx/sites-available").exists()
+        conf_dest = "/etc/nginx/conf.d/neverland.conf" if is_rhel else "/etc/nginx/sites-available/neverland"
+        print(f"{Colors.BOLD}1. Save this config to:{Colors.RESET} {Colors.CYAN}{conf_dest}{Colors.RESET}\n")
         print(f"{Colors.DIM}{nginx_conf}{Colors.RESET}")
-        print(f"{Colors.BOLD}2. Enable and obtain SSL Certificate via Let's Encrypt:{Colors.RESET}")
-        print(f"  {Colors.GREEN}sudo ln -s /etc/nginx/sites-available/neverland /etc/nginx/sites-enabled/{Colors.RESET}")
+        print(f"{Colors.BOLD}2. Enable and obtain SSL Certificate via Let's Encrypt / Cloudflare:{Colors.RESET}")
+        if not is_rhel:
+            print(f"  {Colors.GREEN}sudo ln -s /etc/nginx/sites-available/neverland /etc/nginx/sites-enabled/{Colors.RESET}")
         print(f"  {Colors.GREEN}sudo nginx -t && sudo systemctl reload nginx{Colors.RESET}")
         print(f"  {Colors.GREEN}sudo certbot --nginx -d {domain}{Colors.RESET}\n")
 

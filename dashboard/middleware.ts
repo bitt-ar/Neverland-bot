@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAuthEnabled, SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { createRedirectUrl, isAuthEnabled, SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -36,9 +36,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = "/login";
-  loginUrl.search = "";
+  const loginUrl = createRedirectUrl("/login", request);
   loginUrl.searchParams.set("next", pathname);
   return NextResponse.redirect(loginUrl);
 }
