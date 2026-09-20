@@ -32,6 +32,11 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
             Write-Host "Git is required to download Neverland. Please install Git and rerun this script." -ForegroundColor Red
             exit 1
         }
+    } else {
+        Write-Host "  Found existing Neverland directory at $InstallDir. Updating..." -ForegroundColor Gray
+        Push-Location $InstallDir
+        git pull --ff-only 2>$null
+        Pop-Location
     }
     Set-Location $InstallDir
 }
@@ -86,16 +91,23 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
 # 4. Set up Python Virtual Environment
 Write-Host "`nSetting up Python virtual environment..." -ForegroundColor Cyan
 $VenvDir = Join-Path $InstallDir ".venv"
-if (-not (Test-Path $VenvDir)) {
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+
+if (-not (Test-Path $VenvPython)) {
+    if (Test-Path $VenvDir) {
+        Remove-Item -Recurse -Force $VenvDir
+    }
     & $PythonExe.Split(' ')[0] $PythonExe.Split(' ')[1..($PythonExe.Split(' ').Length-1)] -m venv $VenvDir
 }
 
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-$VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
+if (-not (Test-Path $VenvPython)) {
+    Write-Host "Failed to create virtual environment." -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
-& $VenvPip install --upgrade pip
-& $VenvPip install -r "$InstallDir\requirements.txt"
+& $VenvPython -m pip install --upgrade pip --quiet
+& $VenvPython -m pip install -r "$InstallDir\requirements.txt"
 
 # 5. Install Dashboard Dependencies
 if (Test-Path "$InstallDir\dashboard\package.json") {
@@ -143,5 +155,13 @@ Set-Location $InstallDir
 & $VenvPython -m cli config
 
 # 8. Auto-Start Trigger: Start Neverland services
-Write-Host "`nStarting Neverland services..." -ForegroundColor Green
-& $VenvPython -m cli start
+$DevEnv = Join-Path $InstallDir ".neverland\profiles\dev.env"
+$ProdEnv = Join-Path $InstallDir ".neverland\profiles\prod.env"
+
+if ((Test-Path $DevEnv) -or (Test-Path $ProdEnv)) {
+    Write-Host "`nStarting Neverland services..." -ForegroundColor Green
+    & $VenvPython -m cli start
+} else {
+    Write-Host "`nSetup completed." -ForegroundColor Green
+    Write-Host "Run 'neverland config' to configure your bot, then 'neverland start'." -ForegroundColor White
+}

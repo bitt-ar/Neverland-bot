@@ -3,7 +3,7 @@
 # Neverland Universal Installer (Linux & macOS)
 # Enterprise Discord Automation & Next.js 15 Web Dashboard
 #
-# Created with by bitt-ar
+# Created by bitt-ar
 # ==============================================================================
 
 set -e
@@ -14,6 +14,7 @@ C_GREEN='\033[0;32m'
 C_YELLOW='\033[1;33m'
 C_RED='\033[0;31m'
 C_BOLD='\033[1m'
+C_DIM='\033[2m'
 C_RESET='\033[0m'
 
 echo -e "${C_CYAN}${C_BOLD}"
@@ -40,6 +41,9 @@ if [ ! -f "$INSTALL_DIR/main.py" ] || [ ! -d "$INSTALL_DIR/dashboard" ]; then
             echo -e "${C_RED}Git is required to download Neverland. Please install git and retry.${C_RESET}"
             exit 1
         fi
+    else
+        echo -e "  Found existing Neverland directory at $INSTALL_DIR. Updating repository..."
+        (cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null || true)
     fi
     cd "$INSTALL_DIR"
 fi
@@ -71,23 +75,37 @@ if [ -z "$PYTHON_BIN" ]; then
             echo -e "${C_RED}Homebrew not found. Please install Python 3.11+ manually.${C_RESET}"
             exit 1
         fi
-    elif [ -f /etc/debian_version ]; then
-        if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv
-        else
-            apt-get update && apt-get install -y python3 python3-pip python3-venv
+    elif [ -f /etc/debian_version ] || command -v apt-get >/dev/null 2>&1; then
+        SUDO_CMD=""
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+            SUDO_CMD="sudo"
         fi
+        $SUDO_CMD apt-get update && $SUDO_CMD apt-get install -y python3 python3-pip python3-venv
         PYTHON_BIN="python3"
     elif [ -f /etc/redhat-release ]; then
-        if command -v sudo >/dev/null 2>&1; then
-            sudo dnf install -y python3 python3-pip
-        else
-            dnf install -y python3 python3-pip
+        SUDO_CMD=""
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+            SUDO_CMD="sudo"
         fi
+        $SUDO_CMD dnf install -y python3 python3-pip
         PYTHON_BIN="python3"
     else
         echo -e "${C_RED}Please install Python 3.11+ using your distribution package manager.${C_RESET}"
         exit 1
+    fi
+fi
+
+# Ensure Debian/Ubuntu systems have python3-venv support installed for the active Python binary
+if [ -f /etc/debian_version ] || command -v apt-get >/dev/null 2>&1; then
+    if ! "$PYTHON_BIN" -c "import ensurepip" >/dev/null 2>&1; then
+        echo -e "  Missing system venv support for $PYTHON_BIN. Installing packages..."
+        SUDO_CMD=""
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+            SUDO_CMD="sudo"
+        fi
+        $SUDO_CMD apt-get update -qq 2>/dev/null || true
+        $SUDO_CMD apt-get install -y -qq "${PYTHON_BIN}-venv" python3-venv python3-pip 2>/dev/null || \
+        $SUDO_CMD apt-get install -y -qq python3-venv python3-pip 2>/dev/null || true
     fi
 fi
 
@@ -110,23 +128,59 @@ fi
 
 # 4. Set up Virtual Environment
 echo -e "\n${C_BOLD}Setting up Python environment...${C_RESET}"
-if [ ! -d ".venv" ]; then
-    "$PYTHON_BIN" -m venv .venv
+VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
+
+# Clean up broken virtual environments
+if [ -d ".venv" ] && [ ! -f "$VENV_PYTHON" ]; then
+    echo -e "  Cleaning incomplete virtual environment..."
+    rm -rf .venv
 fi
 
-VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
-VENV_PIP="$INSTALL_DIR/.venv/bin/pip"
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo -e "  Creating virtual environment with $PYTHON_BIN..."
+    if ! "$PYTHON_BIN" -m venv .venv 2>/dev/null; then
+        echo -e "  Standard venv creation failed; attempting with --without-pip..."
+        rm -rf .venv
+        if ! "$PYTHON_BIN" -m venv --without-pip .venv; then
+            echo -e "${C_RED}Failed to create Python virtual environment.${C_RESET}"
+            exit 1
+        fi
+    fi
+fi
 
-"$VENV_PIP" install --upgrade pip
+# Bootstrap pip if missing from the venv
+if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+    echo -e "  Bootstrapping pip inside virtual environment..."
+    if "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+        echo -e "  [OK] pip bootstrapped via ensurepip."
+    elif command -v curl >/dev/null 2>&1; then
+        echo -e "  Downloading pip via curl..."
+        curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$VENV_PYTHON"
+    elif command -v wget >/dev/null 2>&1; then
+        echo -e "  Downloading pip via wget..."
+        wget -qO- https://bootstrap.pypa.io/get-pip.py | "$VENV_PYTHON"
+    else
+        echo -e "${C_RED}Failed to bootstrap pip. Please install python3-venv or curl.${C_RESET}"
+        exit 1
+    fi
+fi
+
+echo -e "  [OK] Python virtual environment ready."
 echo -e "${C_BOLD}Installing Python dependencies...${C_RESET}"
-"$VENV_PIP" install -r requirements.txt
+"$VENV_PYTHON" -m pip install --upgrade pip --quiet
+"$VENV_PYTHON" -m pip install -r requirements.txt
 
 # 5. Install Dashboard Dependencies
 if [ -d "dashboard" ] && [ -f "dashboard/package.json" ]; then
-    echo -e "\n${C_BOLD}Installing Web Dashboard dependencies with $PKG_RUNNER...${C_RESET}"
-    cd dashboard
-    $PKG_RUNNER install
-    cd "$INSTALL_DIR"
+    if command -v node >/dev/null 2>&1; then
+        echo -e "\n${C_BOLD}Installing Web Dashboard dependencies with $PKG_RUNNER...${C_RESET}"
+        cd dashboard
+        $PKG_RUNNER install
+        cd "$INSTALL_DIR"
+    else
+        echo -e "\n${C_YELLOW}Node.js not found. Skipping Web Dashboard package installation.${C_RESET}"
+        echo -e "${C_DIM}Install Node.js 18+ later and run: cd dashboard && npm install${C_RESET}"
+    fi
 fi
 
 # 6. Install Global CLI Command Shim
@@ -149,7 +203,13 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
         SHELL_PROFILE="$HOME/.zshrc"
     fi
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_PROFILE"
+    if [ -f "$SHELL_PROFILE" ]; then
+        if ! grep -q "$BIN_DIR" "$SHELL_PROFILE" 2>/dev/null; then
+            echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_PROFILE"
+        fi
+    else
+        echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_PROFILE"
+    fi
     export PATH="$BIN_DIR:$PATH"
 fi
 
@@ -161,8 +221,27 @@ echo -e "${C_BOLD}Installation complete. Launching the interactive configuration
 echo -e "${C_CYAN}${C_BOLD}======================================================================${C_RESET}\n"
 
 cd "$INSTALL_DIR"
-"$VENV_PYTHON" -m cli config
 
-# 8. Auto-Start Trigger: Start Neverland services
-echo -e "\n${C_BOLD}Starting Neverland...${C_RESET}"
-"$VENV_PYTHON" -m cli start
+if [ -t 0 ]; then
+    "$VENV_PYTHON" -m cli config || true
+elif [ -c /dev/tty ]; then
+    "$VENV_PYTHON" -m cli config < /dev/tty || true
+else
+    echo -e "  Non-interactive shell detected. Skipping interactive configuration."
+    echo -e "  Run ${C_BOLD}neverland config${C_RESET} to configure Neverland interactively."
+fi
+
+# 8. Auto-Start Trigger: Start Neverland services if configured
+STATE_FILE="$INSTALL_DIR/.neverland/state.json"
+ACTIVE_MODE="dev"
+if [ -f "$STATE_FILE" ]; then
+    ACTIVE_MODE=$("$VENV_PYTHON" -c "import json; print(json.load(open('$STATE_FILE')).get('active_mode', 'dev'))" 2>/dev/null || echo "dev")
+fi
+
+if [ -f "$INSTALL_DIR/.neverland/profiles/${ACTIVE_MODE}.env" ]; then
+    echo -e "\n${C_BOLD}Starting Neverland (${ACTIVE_MODE} mode)...${C_RESET}"
+    "$VENV_PYTHON" -m cli start
+else
+    echo -e "\n${C_BOLD}Setup finished.${C_RESET}"
+    echo -e "Run ${C_BOLD}neverland config${C_RESET} to configure your bot, then ${C_BOLD}neverland start${C_RESET}."
+fi
