@@ -25,6 +25,7 @@ irm https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/scripts/install
 ```
 
 ### Linux and macOS (Bash)
+Supports Debian, Ubuntu, Fedora, CentOS, RHEL, Rocky Linux, AlmaLinux, Arch Linux, Manjaro, openSUSE, Alpine Linux, Void Linux, and macOS.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bitt-ar/Neverland-bot/main/scripts/install.sh | bash
 ```
