@@ -34,6 +34,7 @@ import { cn, stripEmojis } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -114,6 +115,10 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
   const [messageToDelete, setMessageToDelete] = useState<ReactionRoleMessage | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Module master switch (reaction roles disabled by default per guild)
+  const [moduleEnabled, setModuleEnabled] = useState(false);
+  const [isTogglingModule, setIsTogglingModule] = useState(false);
+
   // Text-capable channels
   const textChannels = useMemo(() => {
     return channels.filter(
@@ -172,6 +177,15 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
       setChannels(channelsData || []);
       setRoles(rolesData.roles || []);
       setBotTopRolePos(rolesData.bot_top_role_position ?? null);
+
+      // Module master switch (non-fatal if unreachable)
+      try {
+        const stateRes = await fetch(`/api/internal/guilds/${guildId}/modules/reaction_roles/state`, { cache: "no-store" });
+        const stateData = stateRes.ok ? await stateRes.json() : null;
+        setModuleEnabled(Boolean(stateData?.enabled));
+      } catch {
+        setModuleEnabled(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load data from server";
       setLoadError(msg);
@@ -183,6 +197,30 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Toggle the reaction roles module for this guild (bot reads it live via registry cache)
+  const handleToggleModule = async (nextState: boolean) => {
+    const prevState = moduleEnabled;
+    setModuleEnabled(nextState);
+    setIsTogglingModule(true);
+    try {
+      const res = await fetch(`/api/internal/guilds/${guildId}/modules/reaction_roles/state`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: nextState }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed to update module state (${res.status})`);
+      setModuleEnabled(Boolean(data.enabled));
+      toast.success(nextState ? "Reaction Roles module enabled" : "Reaction Roles module disabled");
+    } catch (err: unknown) {
+      setModuleEnabled(prevState);
+      const msg = err instanceof Error ? err.message : "Failed to toggle Reaction Roles module";
+      toast.error(msg);
+    } finally {
+      setIsTogglingModule(false);
+    }
+  };
 
   // Unsaved changes beforeunload guard
   useEffect(() => {
@@ -527,11 +565,48 @@ export function ReactionRolesClient({ guildId }: ReactionRolesClientProps) {
             Configure automated role assignment via Discord reactions, buttons, or select dropdowns.
           </p>
         </div>
-        <Button onClick={handleOpenCreate} className="gap-2 shrink-0">
-          <Plus className="size-4" />
-          <span>Create Reaction Role</span>
-        </Button>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
+            <Label
+              htmlFor="rr-module-toggle"
+              className={cn(
+                "text-xs font-semibold cursor-pointer",
+                moduleEnabled ? "text-emerald-400" : "text-muted-foreground"
+              )}
+            >
+              {moduleEnabled ? "Module Active" : "Module Off"}
+            </Label>
+            <Switch
+              id="rr-module-toggle"
+              checked={moduleEnabled}
+              onCheckedChange={handleToggleModule}
+              disabled={isTogglingModule}
+            />
+          </div>
+          <Button onClick={handleOpenCreate} className="gap-2 shrink-0">
+            <Plus className="size-4" />
+            <span>Create Reaction Role</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Disabled module warning */}
+      {!moduleEnabled && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex items-start gap-3 py-4">
+            <AlertTriangle className="size-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Reaction Roles are disabled on this server
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                The bot ignores reaction, button, and select-menu role assignments until you switch
+                the module on above.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Empty State */}
       {messages.length === 0 ? (
