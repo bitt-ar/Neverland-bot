@@ -221,12 +221,18 @@ if [ -z "$PYTHON_BIN" ]; then
             brew install python@3.11 git curl
             PYTHON_BIN="python3.11"
             ;;
-        *)
-            echo -e "${C_RED}Error: Could not install Python 3.11+ automatically.${C_RESET}"
-            echo -e "Please install Python 3.11 or newer using your system package manager."
-            exit 1
-            ;;
     esac
+
+    # Verify that the package manager actually installed Python >= 3.11
+    INSTALLED_VER=$("$PYTHON_BIN" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+    INSTALLED_MAJOR=${INSTALLED_VER%%.*}
+    INSTALLED_MINOR=${INSTALLED_VER#*.}
+    if [ "$INSTALLED_MAJOR" -lt 3 ] || [ "$INSTALLED_MINOR" -lt 11 ]; then
+        echo -e "${C_RED}Error: System package manager installed Python $INSTALLED_VER, but Neverland requires >= 3.11.${C_RESET}"
+        echo -e "On RHEL/CentOS/Rocky 8 / Amazon Linux 2: install Python 3.11/3.12 (e.g., 'sudo dnf install python3.11' or enable python3.11 module)."
+        echo -e "On Ubuntu 20.04 LTS: use the deadsnakes PPA: 'sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt update && sudo apt install python3.11 python3.11-venv'."
+        exit 1
+    fi
 fi
 
 # Ensure distribution-specific venv packages are installed
@@ -408,10 +414,12 @@ EOF
 chmod +x "$SHIM_FILE"
 
 # Ensure ~/.local/bin is registered across shell profiles
+PATH_NEEDS_RELOAD=false
 case ":$PATH:" in
     *":$BIN_DIR:"*)
         ;;
     *)
+        PATH_NEEDS_RELOAD=true
         for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
             if [ -f "$profile" ]; then
                 if ! grep -q "$BIN_DIR" "$profile" 2>/dev/null; then
@@ -465,4 +473,10 @@ if [ -n "$ACTIVE_MODE" ] && [ -f "$INSTALL_DIR/.neverland/profiles/${ACTIVE_MODE
 else
     echo -e "\n${C_BOLD}Setup finished.${C_RESET}"
     echo -e "Run ${C_BOLD}neverland config${C_RESET} to configure your bot, then ${C_BOLD}neverland start${C_RESET}."
+fi
+
+if [ "$PATH_NEEDS_RELOAD" = true ]; then
+    echo -e "\n${C_YELLOW}${C_BOLD}Notice for current terminal session:${C_RESET}"
+    echo -e "The 'neverland' command was registered in ~/.local/bin. To use it right away in your current terminal:"
+    echo -e "  ${C_BOLD}source ~/.bashrc${C_RESET}  (or source ~/.zshrc / reopen your terminal window)\n"
 fi

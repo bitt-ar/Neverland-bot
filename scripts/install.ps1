@@ -28,6 +28,10 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
     if (-not (Test-Path $InstallDir)) {
         if (Get-Command git -ErrorAction SilentlyContinue) {
             git clone https://github.com/bitt-ar/Neverland-bot.git "$InstallDir"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$InstallDir\main.py")) {
+                Write-Host "Failed to clone Neverland repository. Please check your internet connection and rerun." -ForegroundColor Red
+                exit 1
+            }
         } else {
             Write-Host "Git is required to download Neverland. Please install Git and rerun this script." -ForegroundColor Red
             exit 1
@@ -45,10 +49,13 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
 Write-Host "Checking Python 3.11+ installation..." -ForegroundColor Cyan
 $PythonExe = $null
 
-$PythonCandidates = @("python", "py -3.12", "py -3.11", "py")
+$PythonCandidates = @("python", "python3", "py", "py -3.12", "py -3.11")
 foreach ($cmd in $PythonCandidates) {
+    $parts = $cmd -split '\s+'
+    $exe = $parts[0]
+    $exeArgs = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] } else { @() }
     try {
-        $ver = & $cmd.Split(' ')[0] $cmd.Split(' ')[1..($cmd.Split(' ').Length-1)] -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        $ver = & $exe @exeArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
         if ($ver) {
             $major = [int]($ver.Split('.')[0])
             $minor = [int]($ver.Split('.')[1])
@@ -66,23 +73,61 @@ if (-not $PythonExe) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install -e --id Python.Python.3.11 --accept-package-agreements --accept-source-agreements
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        $PythonExe = "python"
-    } else {
+        
+        $verifyCandidates = @("py -3.11", "python", "python3", "py")
+        foreach ($cmd in $verifyCandidates) {
+            $parts = $cmd -split '\s+'
+            $exe = $parts[0]
+            $exeArgs = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] } else { @() }
+            try {
+                $ver = & $exe @exeArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+                if ($ver) {
+                    $major = [int]($ver.Split('.')[0])
+                    $minor = [int]($ver.Split('.')[1])
+                    if ($major -ge 3 -and $minor -ge 11) {
+                        $PythonExe = $cmd
+                        Write-Host "  [OK] Python installed successfully: $cmd ($ver)" -ForegroundColor Green
+                        break
+                    }
+                }
+            } catch {}
+        }
+    }
+    
+    if (-not $PythonExe) {
         Write-Host "Please install Python 3.11 or newer from https://www.python.org/downloads/ and make sure to check 'Add Python to PATH'." -ForegroundColor Red
         exit 1
     }
 }
 
-# 3. Check Node.js
+# 3. Check Node.js (v18.18+ required for Next.js 15)
 Write-Host "Checking Node.js..." -ForegroundColor Cyan
+$NodeOk = $false
 if (Get-Command node -ErrorAction SilentlyContinue) {
     $nodeVer = & node -v
-    Write-Host "  [OK] Found Node.js: $nodeVer" -ForegroundColor Green
-} else {
-    Write-Host "  Node.js not detected. Attempting to install via winget..." -ForegroundColor Yellow
+    try {
+        $nodeMajor = [int]($nodeVer.TrimStart('v').Split('.')[0])
+        if ($nodeMajor -ge 18) {
+            $NodeOk = $true
+            Write-Host "  [OK] Found Node.js: $nodeVer" -ForegroundColor Green
+        } else {
+            Write-Host "  [WARNING] Found Node.js $nodeVer, but Next.js 15 requires Node.js >= 18.18." -ForegroundColor Yellow
+        }
+    } catch {
+        $NodeOk = $true
+        Write-Host "  [OK] Found Node.js: $nodeVer" -ForegroundColor Green
+    }
+}
+
+if (-not $NodeOk) {
+    Write-Host "  Attempting to install Node.js LTS via winget..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        if (Get-Command node -ErrorAction SilentlyContinue) {
+            $nodeVer = & node -v
+            Write-Host "  [OK] Node.js installed successfully: $nodeVer" -ForegroundColor Green
+        }
     } else {
         Write-Host "Please install Node.js 18+ from https://nodejs.org/" -ForegroundColor Yellow
     }
@@ -97,7 +142,10 @@ if (-not (Test-Path $VenvPython)) {
     if (Test-Path $VenvDir) {
         Remove-Item -Recurse -Force $VenvDir
     }
-    & $PythonExe.Split(' ')[0] $PythonExe.Split(' ')[1..($PythonExe.Split(' ').Length-1)] -m venv $VenvDir
+    $parts = $PythonExe -split '\s+'
+    $exe = $parts[0]
+    $exeArgs = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] } else { @() }
+    & $exe @exeArgs -m venv $VenvDir
 }
 
 if (-not (Test-Path $VenvPython)) {
@@ -134,14 +182,28 @@ $CmdContent = @"
 cd /d "$InstallDir"
 "$VenvPython" -m cli %*
 "@
-Set-Content -Path $CmdShim -Value $CmdContent -Encoding ASCII
+Set-Content -Path $CmdShim -Value $CmdContent -Encoding UTF8
 
-# Ensure User PATH contains $BinDir
-$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -notlike "*$BinDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
-    $env:Path = "$env:Path;$BinDir"
-    Write-Host "  [OK] Added $BinDir to User PATH." -ForegroundColor Green
+# Ensure User PATH contains $BinDir safely preserving REG_EXPAND_SZ
+try {
+    $UserKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+    if ($UserKey) {
+        $UserPath = $UserKey.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($UserPath -notlike "*$BinDir*") {
+            $NewPath = if ($UserPath) { "$UserPath;$BinDir" } else { $BinDir }
+            $UserKey.SetValue("Path", $NewPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            $env:Path = "$env:Path;$BinDir"
+            Write-Host "  [OK] Added $BinDir to User PATH." -ForegroundColor Green
+        }
+        $UserKey.Close()
+    }
+} catch {
+    $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($UserPath -notlike "*$BinDir*") {
+        [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
+        $env:Path = "$env:Path;$BinDir"
+        Write-Host "  [OK] Added $BinDir to User PATH." -ForegroundColor Green
+    }
 }
 
 Write-Host "  [OK] 'neverland' command registered successfully." -ForegroundColor Green
