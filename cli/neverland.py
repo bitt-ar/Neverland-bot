@@ -90,7 +90,54 @@ def get_state() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"active_mode": "dev", "configured_modes": []}
+    return {"active_mode": None, "configured_modes": []}
+
+
+def normalize_mode(mode) -> str:
+    """Normalize user input or mode aliases into canonical 'dev' or 'prod'."""
+    if not mode:
+        return ""
+    m = str(mode).strip().lower()
+    if m in ("dev", "development", "debug", "d", "1"):
+        return "dev"
+    if m in ("prod", "production", "publish", "pub", "p", "release", "2"):
+        return "prod"
+    return ""
+
+
+def resolve_active_mode(requested_mode=None) -> str:
+    """
+    Intelligently determine which mode (dev or prod) should be activated:
+    1. If user explicitly passed a mode, normalize and validate it.
+    2. Check state.json for an 'active_mode' whose profile exists.
+    3. Auto-detect from existing profiles in .neverland/profiles:
+       - If prod.env exists and dev.env does not: auto-select 'prod'.
+       - If dev.env exists and prod.env does not: auto-select 'dev'.
+       - If both exist: prefer state.json active_mode, or fallback to 'prod'.
+    4. If no profiles exist, return empty string.
+    """
+    if requested_mode:
+        normalized = normalize_mode(requested_mode)
+        if normalized:
+            return normalized
+
+    state = get_state()
+    active_in_state = normalize_mode(state.get("active_mode"))
+
+    prod_exists = (PROFILES_DIR / "prod.env").exists()
+    dev_exists = (PROFILES_DIR / "dev.env").exists()
+
+    if active_in_state and (PROFILES_DIR / f"{active_in_state}.env").exists():
+        return active_in_state
+
+    if prod_exists and not dev_exists:
+        return "prod"
+    if dev_exists and not prod_exists:
+        return "dev"
+    if prod_exists and dev_exists:
+        return active_in_state or "prod"
+
+    return ""
 
 
 def save_state(state: dict):
@@ -168,16 +215,17 @@ def prompt_input(label: str, default: str = "", secret: bool = False, required: 
         print(f"    {Colors.RED}This field is required. Please enter a value.{Colors.RESET}")
 
 
-def activate_profile(mode: str):
+def activate_profile(mode: str) -> bool:
     """Sync the given mode's profile to .env and dashboard/.env.local without touching the other mode."""
-    profile_path = PROFILES_DIR / f"{mode}.env"
+    canon_mode = normalize_mode(mode) or mode
+    profile_path = PROFILES_DIR / f"{canon_mode}.env"
     if not profile_path.exists():
         return False
 
     profile_data = load_env_dict(profile_path)
     
     # Write bot root .env
-    write_env_file(BOT_ENV_FILE, profile_data, header=f"Active Profile: {mode.upper()}")
+    write_env_file(BOT_ENV_FILE, profile_data, header=f"Active Profile: {canon_mode.upper()}")
     
     dash_port = str(profile_data.get("PORT", "3000"))
     dash_url = str(profile_data.get("NEXT_PUBLIC_APP_URL") or f"http://localhost:{dash_port}")
@@ -196,7 +244,7 @@ def activate_profile(mode: str):
         "CONTROL_PLANE_URL": profile_data.get("CONTROL_PLANE_URL") or f"http://127.0.0.1:{profile_data.get('CONTROL_PLANE_PORT', '8800')}",
         "GUILD_ID": profile_data.get("GUILD_ID", ""),
         "NEXT_PUBLIC_APP_URL": dash_url,
-        "AUTH_ENABLED": profile_data.get("AUTH_ENABLED", "true"),
+        "AUTH_ENABLED": profile_data.get("AUTH_ENABLED", "true" if canon_mode == "prod" else "false"),
         "DASHBOARD_SESSION_SECRET": profile_data.get("DASHBOARD_SESSION_SECRET", ""),
         "OWNER_DISCORD_ID": profile_data.get("OWNER_DISCORD_ID", ""),
         "ADMIN_DISCORD_IDS": profile_data.get("ADMIN_DISCORD_IDS", ""),
@@ -204,11 +252,11 @@ def activate_profile(mode: str):
         "PORT": dash_port,
         "HOSTNAME": profile_data.get("HOSTNAME", "0.0.0.0"),
     }
-    write_env_file(DASHBOARD_ENV_FILE, dashboard_data, header=f"Active Profile: {mode.upper()} for Next.js 15")
+    write_env_file(DASHBOARD_ENV_FILE, dashboard_data, header=f"Active Profile: {canon_mode.upper()} for Next.js 15")
     
     # Update state
     state = get_state()
-    state["active_mode"] = mode
+    state["active_mode"] = canon_mode
     save_state(state)
     return True
 
@@ -222,9 +270,11 @@ def cmd_config(args):
     print(f"\n{Colors.BOLD}{Colors.CYAN}--- NEVERLAND INTERACTIVE CONFIGURATION WIZARD ---{Colors.RESET}\n")
 
     state = get_state()
-    current_active = state.get("active_mode", "dev")
+    current_active = state.get("active_mode") or ("prod" if (PROFILES_DIR / "prod.env").exists() else "dev")
 
-    mode = args.mode
+    raw_mode = getattr(args, "mode", None)
+    mode = normalize_mode(raw_mode) if raw_mode else ""
+
     if not mode:
         print(f"{Colors.BOLD}Please select your deployment mode:{Colors.RESET}\n")
         print(f"  {Colors.BOLD}[1] Development Mode (`dev`){Colors.RESET}")
@@ -232,23 +282,25 @@ def cmd_config(args):
         print(f"      - {Colors.DIM}Direct dashboard access with dynamic multi-server discovery (no OAuth required){Colors.RESET}")
         print(f"      - {Colors.DIM}Binds to 0.0.0.0 on configurable port for immediate network deployment{Colors.RESET}")
         print(f"      - {Colors.DIM}Auto-generates all cryptographic keys locally{Colors.RESET}\n")
-        print(f"  {Colors.BOLD}[2] Production / Server Mode (`prod`){Colors.RESET}")
+        print(f"  {Colors.BOLD}[2] Publish / Production Mode (`prod` / `publish`){Colors.RESET}")
         print(f"      - {Colors.DIM}Designed for VPS / Cloud Servers with a public domain or IP{Colors.RESET}")
         print(f"      - {Colors.DIM}Full Discord OAuth2 user authentication and role-based permissions{Colors.RESET}")
         print(f"      - {Colors.DIM}Supports custom domains or direct IP (e.g. http://IP:PORT){Colors.RESET}")
         print(f"      - {Colors.DIM}Hardened security keys & SSL reverse proxy compatibility{Colors.RESET}\n")
 
-        choice = prompt_input("Select mode (1 for dev, 2 for prod)", default="1" if current_active == "dev" else "2")
-        mode = "prod" if choice in ["2", "prod", "production"] else "dev"
+        default_num = "1" if current_active == "dev" else "2"
+        choice = prompt_input("Select mode (1 for dev, 2 for prod/publish)", default=default_num)
+        mode = normalize_mode(choice) or ("prod" if choice in ["2", "prod", "production", "publish", "pub"] else "dev")
 
+    mode_label = "PUBLISH / PROD" if mode == "prod" else "DEVELOPMENT (DEV)"
     profile_file = PROFILES_DIR / f"{mode}.env"
     existing = load_env_dict(profile_file)
 
     if existing:
-        print(f"\n{Colors.GREEN}Found existing saved settings for {mode.upper()} mode.{Colors.RESET}")
+        print(f"\n{Colors.GREEN}Found existing saved settings for {mode_label} mode.{Colors.RESET}")
         print(f"{Colors.DIM}Press [Enter] to keep current values, or type new values to update.{Colors.RESET}\n")
     else:
-        print(f"\n{Colors.YELLOW}Configuring {mode.upper()} mode for the first time.{Colors.RESET}\n")
+        print(f"\n{Colors.YELLOW}Configuring {mode_label} mode for the first time.{Colors.RESET}\n")
 
     new_cfg = {}
 
@@ -317,11 +369,14 @@ def cmd_config(args):
 
     # Activate profile
     activate_profile(mode)
-    print(f"{Colors.GREEN}[OK] Active profile set to: {mode.upper()}{Colors.RESET}")
+    print(f"{Colors.GREEN}[OK] Active profile set to: {mode_label}{Colors.RESET}")
 
-    configured = set(state.get("configured_modes", []))
+    # Reload state to avoid race condition / overwriting active_mode
+    state = get_state()
+    state["active_mode"] = mode
+    configured = set(state.get("configured_modes") or [])
     configured.add(mode)
-    state["configured_modes"] = list(configured)
+    state["configured_modes"] = sorted(list(configured))
     save_state(state)
 
     print(f"\n{Colors.GREEN}{Colors.BOLD}Configuration complete!{Colors.RESET}")
@@ -330,7 +385,7 @@ def cmd_config(args):
         print(f"Make sure to add this Redirect URI in your Discord Application (OAuth2 > General):")
         print(f"  [-] {Colors.CYAN}{new_cfg['DISCORD_REDIRECT_URI']}{Colors.RESET}\n")
 
-    print(f"Run {Colors.BOLD}neverland start{Colors.RESET} to launch your bot and dashboard!")
+    print(f"Run {Colors.BOLD}neverland start{Colors.RESET} to launch your bot and dashboard in {mode_label} mode!")
 
 
 # =====================================================================
@@ -363,16 +418,24 @@ def find_npm_runner() -> str:
 
 def cmd_start(args):
     print_banner()
-    state = get_state()
-    mode = args.mode or state.get("active_mode", "dev")
+    raw_mode = getattr(args, "mode", None)
+    mode = resolve_active_mode(raw_mode)
 
-    # Check if profile exists
+    if not mode:
+        print(f"\n{Colors.YELLOW}No active configuration profile found.{Colors.RESET}")
+        print(f"{Colors.BOLD}Please select your deployment mode to configure:{Colors.RESET}\n")
+        print(f"  {Colors.BOLD}[1] Development Mode (`dev`){Colors.RESET}")
+        print(f"  {Colors.BOLD}[2] Publish / Production Mode (`prod` / `publish`){Colors.RESET}\n")
+        choice = prompt_input("Select mode (1 for dev, 2 for prod/publish)", default="2")
+        mode = normalize_mode(choice) or ("prod" if choice in ["2", "prod", "publish", "pub"] else "dev")
+        cmd_config(argparse.Namespace(mode=mode))
+        mode = resolve_active_mode(mode) or mode
+
     profile_file = PROFILES_DIR / f"{mode}.env"
     if not profile_file.exists():
-        print(f"{Colors.YELLOW}No configuration found for mode '{mode}'. Launching configuration wizard...{Colors.RESET}")
-        class DummyArgs:
-            mode = mode
-        cmd_config(DummyArgs())
+        mode_label = "Publish / Production" if mode == "prod" else "Development"
+        print(f"{Colors.YELLOW}No configuration found for {mode_label} mode ('{mode}'). Launching configuration wizard...{Colors.RESET}")
+        cmd_config(argparse.Namespace(mode=mode))
 
     activate_profile(mode)
     pids = get_pids()
@@ -385,7 +448,8 @@ def cmd_start(args):
         print(f"Use {Colors.BOLD}neverland stop{Colors.RESET} to stop it first, or {Colors.BOLD}neverland status{Colors.RESET} for details.")
         return
 
-    print(f"\n{Colors.BOLD}Starting Neverland in {Colors.CYAN}{mode.upper()}{Colors.RESET}{Colors.BOLD} mode...{Colors.RESET}")
+    mode_label = "PUBLISH / PROD" if mode == "prod" else "DEVELOPMENT (DEV)"
+    print(f"\n{Colors.BOLD}Starting Neverland in {Colors.CYAN}{mode_label}{Colors.RESET}{Colors.BOLD} mode...{Colors.RESET}")
 
     env = os.environ.copy()
     env_vars = load_env_dict(BOT_ENV_FILE)
@@ -546,7 +610,8 @@ def cmd_status(args):
     print_banner()
     state = get_state()
     pids = get_pids()
-    active_mode = state.get("active_mode", "dev")
+    active_mode = resolve_active_mode() or state.get("active_mode") or "prod"
+    mode_label = "PUBLISH / PROD" if active_mode == "prod" else "DEVELOPMENT (DEV)"
 
     bot_pid = pids.get("bot_pid")
     dash_pid = pids.get("dashboard_pid")
@@ -560,8 +625,8 @@ def cmd_status(args):
     env_vars = load_env_dict(BOT_ENV_FILE)
 
     print(f"\n{Colors.BOLD}--- NEVERLAND STATUS REPORT ---{Colors.RESET}")
-    print(f"  Active Profile:    {Colors.CYAN}{active_mode.upper()}{Colors.RESET}")
-    print(f"  Configured Modes:  {', '.join(state.get('configured_modes', ['none']))}")
+    print(f"  Active Profile:    {Colors.CYAN}{mode_label}{Colors.RESET} ({active_mode})")
+    print(f"  Configured Modes:  {', '.join(state.get('configured_modes') or [active_mode])}")
     print(f"  Discord Bot:       {bot_status}")
     print(f"  Next.js Dashboard: {dash_status}")
     print(f"  Dashboard URL:     {Colors.CYAN}{env_vars.get('NEXT_PUBLIC_APP_URL', 'http://localhost:3000')}{Colors.RESET}")
@@ -794,14 +859,16 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
+    MODE_CHOICES = ["dev", "prod", "publish", "pub", "development"]
+
     # config
-    p_config = subparsers.add_parser("config", help="Interactive configuration wizard (Dev or Prod modes)")
-    p_config.add_argument("--mode", choices=["dev", "prod"], help="Directly configure specified mode (dev or prod)")
+    p_config = subparsers.add_parser("config", help="Interactive configuration wizard (Dev or Publish/Prod modes)")
+    p_config.add_argument("-m", "--mode", choices=MODE_CHOICES, help="Directly configure specified mode (dev or prod/publish)")
     p_config.set_defaults(func=cmd_config)
 
     # start
     p_start = subparsers.add_parser("start", help="Start Discord Bot and Dashboard")
-    p_start.add_argument("--mode", choices=["dev", "prod"], help="Mode to start in (dev or prod)")
+    p_start.add_argument("-m", "--mode", choices=MODE_CHOICES, help="Mode to start in (dev or prod/publish)")
     p_start.add_argument("-d", "--daemon", action="store_true", help="Run processes in background daemon mode")
     p_start.add_argument("--bot-only", action="store_true", help="Start only the Discord Bot")
     p_start.add_argument("--dashboard-only", action="store_true", help="Start only the Web Dashboard")
@@ -813,6 +880,7 @@ def main():
 
     # restart
     p_restart = subparsers.add_parser("restart", help="Restart Bot and Dashboard services")
+    p_restart.add_argument("-m", "--mode", choices=MODE_CHOICES, help="Mode to restart in (dev or prod/publish)")
     p_restart.add_argument("-d", "--daemon", action="store_true", help="Restart in background daemon mode")
     p_restart.set_defaults(func=cmd_restart)
 

@@ -446,15 +446,22 @@ fi
 # ------------------------------------------------------------------------------
 # 10. Service Auto-Start Trigger
 # ------------------------------------------------------------------------------
-STATE_FILE="$INSTALL_DIR/.neverland/state.json"
-ACTIVE_MODE="dev"
-if [ -f "$STATE_FILE" ]; then
-    ACTIVE_MODE=$("$VENV_PYTHON" -c "import json; print(json.load(open('$STATE_FILE')).get('active_mode', 'dev'))" 2>/dev/null || echo "dev")
+ACTIVE_MODE=""
+if [ -d "$INSTALL_DIR" ]; then
+    ACTIVE_MODE=$("$VENV_PYTHON" -c "from cli.neverland import resolve_active_mode; print(resolve_active_mode() or '')" 2>/dev/null || echo "")
 fi
 
-if [ -f "$INSTALL_DIR/.neverland/profiles/${ACTIVE_MODE}.env" ]; then
-    echo -e "\n${C_BOLD}Starting Neverland (${ACTIVE_MODE} mode)...${C_RESET}"
-    "$VENV_PYTHON" -m cli start
+if [ -z "$ACTIVE_MODE" ]; then
+    if [ -f "$INSTALL_DIR/.neverland/profiles/prod.env" ]; then
+        ACTIVE_MODE="prod"
+    elif [ -f "$INSTALL_DIR/.neverland/profiles/dev.env" ]; then
+        ACTIVE_MODE="dev"
+    fi
+fi
+
+if [ -n "$ACTIVE_MODE" ] && [ -f "$INSTALL_DIR/.neverland/profiles/${ACTIVE_MODE}.env" ]; then
+    echo -e "\n${C_BOLD}Starting Neverland in ${ACTIVE_MODE} mode...${C_RESET}"
+    "$VENV_PYTHON" -m cli start --mode "$ACTIVE_MODE"
 else
     echo -e "\n${C_BOLD}Setup finished.${C_RESET}"
     echo -e "Run ${C_BOLD}neverland config${C_RESET} to configure your bot, then ${C_BOLD}neverland start${C_RESET}."
