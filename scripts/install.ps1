@@ -133,6 +133,42 @@ if (-not $NodeOk) {
     }
 }
 
+# 3.5 Check & Install FFmpeg (Required for Discord Audio & Radio)
+Write-Host "Checking FFmpeg..." -ForegroundColor Cyan
+$FfmpegOk = $false
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    try {
+        $ffmpegVer = (& ffmpeg -version | Select-Object -First 1)
+        Write-Host "  [OK] Found FFmpeg: $ffmpegVer (skipping installation)" -ForegroundColor Green
+        $FfmpegOk = $true
+    } catch {
+        $FfmpegOk = $false
+    }
+}
+
+if (-not $FfmpegOk) {
+    Write-Host "  FFmpeg not found. Attempting to install via winget..." -ForegroundColor Yellow
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install -e --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            $FfmpegOk = $true
+            Write-Host "  [OK] FFmpeg installed successfully." -ForegroundColor Green
+        }
+    }
+    if (-not $FfmpegOk -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        choco install ffmpeg -y
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            $FfmpegOk = $true
+            Write-Host "  [OK] FFmpeg installed successfully via Chocolatey." -ForegroundColor Green
+        }
+    }
+    if (-not $FfmpegOk) {
+        Write-Host "  [Notice] FFmpeg will also be checked and auto-managed by the Neverland CLI." -ForegroundColor Yellow
+    }
+}
+
 # 4. Set up Python Virtual Environment
 Write-Host "`nSetting up Python virtual environment..." -ForegroundColor Cyan
 $VenvDir = Join-Path $InstallDir ".venv"

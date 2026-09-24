@@ -308,6 +308,45 @@ elif command -v npm >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------------------
+# 5.5 Check & Install FFmpeg (Required for Discord Audio & Radio)
+# ------------------------------------------------------------------------------
+echo -e "\n${C_BOLD}Checking FFmpeg installation...${C_RESET}"
+if command -v ffmpeg >/dev/null 2>&1; then
+    FFMPEG_VER=$(ffmpeg -version 2>/dev/null | head -n 1 || echo "")
+    echo -e "  [OK] Found FFmpeg: $FFMPEG_VER (skipping installation)"
+else
+    echo -e "  FFmpeg not found. Attempting to install via package manager..."
+    case "$PKG_MGR" in
+        apt)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        dnf|yum)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        pacman)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        zypper)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        apk)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        xbps)
+            install_system_packages ffmpeg 2>/dev/null || true
+            ;;
+        brew)
+            brew install ffmpeg 2>/dev/null || true
+            ;;
+    esac
+    if command -v ffmpeg >/dev/null 2>&1; then
+        echo -e "  ${C_GREEN}[OK] FFmpeg installed successfully.${C_RESET}"
+    else
+        echo -e "  ${C_YELLOW}[Notice] FFmpeg will also be checked and auto-managed by the Neverland CLI.${C_RESET}"
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # 6. Universal Python Virtual Environment Setup & Pip Bootstrap
 # ------------------------------------------------------------------------------
 echo -e "\n${C_BOLD}Setting up Python environment...${C_RESET}"

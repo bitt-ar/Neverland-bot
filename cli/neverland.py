@@ -32,7 +32,10 @@ import shutil
 import signal
 import socket
 import subprocess
+import tarfile
 import time
+import urllib.request
+import zipfile
 from pathlib import Path
 
 # Enable ANSI colors on legacy Windows console (Windows 10+)
@@ -473,6 +476,360 @@ def cmd_config(args):
 
 
 # =====================================================================
+# SYSTEM TOOLS & AUTO-UPDATE HELPERS (FFmpeg & GitHub)
+# =====================================================================
+
+def get_user_bin_dir() -> Path:
+    """Return platform-specific user bin directory for Neverland tools."""
+    if platform.system() == "Windows":
+        return Path.home() / ".neverland" / "bin"
+    return Path.home() / ".local" / "bin"
+
+
+def refresh_env_path():
+    """Ensure user binary directories and registry/system paths are in os.environ['PATH']."""
+    current_paths = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    bin_dir = str(get_user_bin_dir())
+
+    if bin_dir not in current_paths:
+        current_paths.insert(0, bin_dir)
+
+    if platform.system() == "Windows":
+        try:
+            import winreg
+            for hkey in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                sub = r"Environment" if hkey == winreg.HKEY_CURRENT_USER else r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+                try:
+                    with winreg.OpenKey(hkey, sub) as key:
+                        reg_path, _ = winreg.QueryValueEx(key, "Path")
+                        for part in reg_path.split(";"):
+                            part = part.strip()
+                            if part and part not in current_paths:
+                                current_paths.append(part)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    os.environ["PATH"] = os.pathsep.join(current_paths)
+
+
+def _add_to_windows_path(bin_dir: Path):
+    """Safely append bin_dir to Windows User PATH environment variable."""
+    try:
+        import winreg
+        bin_str = str(bin_dir)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_ALL_ACCESS) as key:
+            try:
+                current_path, _ = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current_path = ""
+            paths = [p for p in current_path.split(";") if p.strip()]
+            if not any(p.lower() == bin_str.lower() for p in paths):
+                paths.append(bin_str)
+                new_path = ";".join(paths)
+                winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
+    except Exception:
+        pass
+
+
+def is_ffmpeg_installed() -> tuple[bool, str]:
+    """Check if ffmpeg is installed and executable. Returns (is_installed, version_or_path)."""
+    refresh_env_path()
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        candidate = get_user_bin_dir() / ("ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg")
+        if candidate.exists() and os.access(candidate, os.X_OK if platform.system() != "Windows" else os.R_OK):
+            ffmpeg_path = str(candidate)
+
+    if not ffmpeg_path:
+        return False, ""
+
+    try:
+        res = subprocess.run([ffmpeg_path, "-version"], capture_output=True, text=True, timeout=3)
+        if res.returncode == 0:
+            first_line = res.stdout.strip().split("\n")[0]
+            return True, first_line
+    except Exception:
+        pass
+
+    return True, ffmpeg_path
+
+
+def _install_ffmpeg_windows() -> bool:
+    """Install FFmpeg on Windows using winget, choco, scoop, or direct static download."""
+    if shutil.which("winget"):
+        print(f"  {Colors.DIM}Attempting FFmpeg installation via winget...{Colors.RESET}")
+        try:
+            subprocess.run(
+                ["winget", "install", "-e", "--id", "Gyan.FFmpeg", "--accept-package-agreements", "--accept-source-agreements"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            refresh_env_path()
+            if is_ffmpeg_installed()[0]:
+                return True
+        except Exception:
+            pass
+
+    if shutil.which("choco"):
+        print(f"  {Colors.DIM}Attempting FFmpeg installation via Chocolatey...{Colors.RESET}")
+        try:
+            subprocess.run(["choco", "install", "ffmpeg", "-y"], capture_output=True, text=True, timeout=180)
+            refresh_env_path()
+            if is_ffmpeg_installed()[0]:
+                return True
+        except Exception:
+            pass
+
+    if shutil.which("scoop"):
+        print(f"  {Colors.DIM}Attempting FFmpeg installation via Scoop...{Colors.RESET}")
+        try:
+            subprocess.run(["scoop", "install", "ffmpeg"], capture_output=True, text=True, timeout=180)
+            refresh_env_path()
+            if is_ffmpeg_installed()[0]:
+                return True
+        except Exception:
+            pass
+
+    # Fallback: direct download static zip into ~/.neverland/bin
+    print(f"  {Colors.DIM}Downloading standalone FFmpeg binary for Windows...{Colors.RESET}")
+    bin_dir = get_user_bin_dir()
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    zip_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    tmp_zip = bin_dir / "ffmpeg_temp.zip"
+    try:
+        urllib.request.urlretrieve(zip_url, tmp_zip)
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            for member in z.namelist():
+                filename = Path(member).name
+                if filename.lower() in ("ffmpeg.exe", "ffprobe.exe"):
+                    source = z.open(member)
+                    target = bin_dir / filename
+                    with open(target, "wb") as f_out:
+                        shutil.copyfileobj(source, f_out)
+        tmp_zip.unlink(missing_ok=True)
+        _add_to_windows_path(bin_dir)
+        refresh_env_path()
+        return is_ffmpeg_installed()[0]
+    except Exception as e:
+        tmp_zip.unlink(missing_ok=True)
+        print(f"  {Colors.YELLOW}[Notice] Direct download fallback failed: {e}{Colors.RESET}")
+        return False
+
+
+def _install_ffmpeg_linux() -> bool:
+    """Install FFmpeg on Linux using system package manager or static release."""
+    pkg_mgrs = [
+        ("apt-get", ["apt-get", "update", "-y"], ["apt-get", "install", "-y", "ffmpeg"]),
+        ("dnf", None, ["dnf", "install", "-y", "ffmpeg"]),
+        ("yum", None, ["yum", "install", "-y", "ffmpeg"]),
+        ("pacman", None, ["pacman", "-Sy", "--noconfirm", "ffmpeg"]),
+        ("zypper", None, ["zypper", "install", "-y", "ffmpeg"]),
+        ("apk", None, ["apk", "add", "--no-cache", "ffmpeg"]),
+        ("xbps-install", None, ["xbps-install", "-y", "ffmpeg"]),
+    ]
+
+    has_sudo = (shutil.which("sudo") is not None) and (hasattr(os, "geteuid") and os.geteuid() != 0)
+
+    for mgr, update_cmd, install_cmd in pkg_mgrs:
+        if shutil.which(mgr):
+            print(f"  {Colors.DIM}Attempting FFmpeg installation via {mgr}...{Colors.RESET}")
+            try:
+                prefix = ["sudo"] if has_sudo else []
+                if update_cmd:
+                    subprocess.run(prefix + update_cmd, capture_output=True, timeout=60)
+                subprocess.run(prefix + install_cmd, capture_output=True, timeout=120)
+                refresh_env_path()
+                if is_ffmpeg_installed()[0]:
+                    return True
+            except Exception:
+                pass
+
+    if platform.machine().lower() in ("x86_64", "amd64"):
+        print(f"  {Colors.DIM}Downloading static FFmpeg binary for Linux...{Colors.RESET}")
+        bin_dir = get_user_bin_dir()
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        tar_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+        tmp_tar = bin_dir / "ffmpeg_temp.tar.xz"
+        try:
+            urllib.request.urlretrieve(tar_url, tmp_tar)
+            with tarfile.open(tmp_tar, "r:xz") as tar:
+                for member in tar.getmembers():
+                    filename = Path(member.name).name
+                    if filename in ("ffmpeg", "ffprobe"):
+                        f = tar.extractfile(member)
+                        if f:
+                            target = bin_dir / filename
+                            with open(target, "wb") as f_out:
+                                shutil.copyfileobj(f, f_out)
+                            target.chmod(0o755)
+            tmp_tar.unlink(missing_ok=True)
+            refresh_env_path()
+            return is_ffmpeg_installed()[0]
+        except Exception:
+            tmp_tar.unlink(missing_ok=True)
+
+    return False
+
+
+def _install_ffmpeg_macos() -> bool:
+    """Install FFmpeg on macOS using Homebrew."""
+    if shutil.which("brew"):
+        print(f"  {Colors.DIM}Attempting FFmpeg installation via Homebrew...{Colors.RESET}")
+        try:
+            subprocess.run(["brew", "install", "ffmpeg"], capture_output=True, timeout=180)
+            refresh_env_path()
+            return is_ffmpeg_installed()[0]
+        except Exception:
+            pass
+    return False
+
+
+def ensure_ffmpeg(force: bool = False) -> bool:
+    """
+    Verify that FFmpeg is available.
+    If already installed, skip installation ('ولو موجود يعمل سكب').
+    If not installed, install it automatically.
+    """
+    installed, ver = is_ffmpeg_installed()
+    if installed and not force:
+        ver_summary = ver.split("\n")[0] if ver else "installed"
+        first_part = ver_summary.split()[0] if ver_summary else "ffmpeg"
+        sec_part = ver_summary.split()[2] if len(ver_summary.split()) > 2 else ""
+        print(f"  {Colors.GREEN}[OK] FFmpeg is already installed ({first_part} {sec_part}) - skipping installation.{Colors.RESET}")
+        return True
+
+    print(f"  {Colors.YELLOW}[Notice] FFmpeg is not installed. Installing FFmpeg automatically...{Colors.RESET}")
+
+    sys_os = platform.system()
+    if sys_os == "Windows":
+        _install_ffmpeg_windows()
+    elif sys_os == "Linux":
+        _install_ffmpeg_linux()
+    elif sys_os == "Darwin":
+        _install_ffmpeg_macos()
+    else:
+        print(f"  {Colors.YELLOW}[Warning] Unsupported OS ({sys_os}) for automatic FFmpeg installation.{Colors.RESET}")
+        return False
+
+    refresh_env_path()
+    installed, ver = is_ffmpeg_installed()
+    if installed:
+        print(f"  {Colors.GREEN}[OK] FFmpeg installed successfully.{Colors.RESET}")
+        return True
+    else:
+        print(f"  {Colors.YELLOW}[Warning] FFmpeg installation completed, but binary not found in PATH.{Colors.RESET}")
+        print(f"  {Colors.DIM}Audio features may not function until FFmpeg is available in system PATH.{Colors.RESET}")
+        return False
+
+
+def _sync_updated_dependencies():
+    """Install or upgrade dependencies if requirements.txt exists."""
+    req_file = BASE_DIR / "requirements.txt"
+    if req_file.exists():
+        print(f"  {Colors.CYAN}Syncing Python dependencies from requirements.txt...{Colors.RESET}")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"],
+                cwd=str(BASE_DIR),
+                check=False,
+                timeout=90,
+            )
+            print(f"  {Colors.GREEN}[OK] Python dependencies up to date.{Colors.RESET}")
+        except Exception as e:
+            print(f"  {Colors.YELLOW}[Notice] Dependency sync skipped: {e}{Colors.RESET}")
+
+
+def update_from_github(verbose: bool = True) -> bool:
+    """
+    Check and pull the latest changes from the GitHub repository automatically.
+    Gracefully handles offline environments, detached heads, or local modifications.
+    """
+    git_dir = BASE_DIR / ".git"
+    if not git_dir.exists():
+        if verbose:
+            print(f"  {Colors.DIM}[Notice] Not a git repository ({BASE_DIR}). Skipping auto-update.{Colors.RESET}")
+        return False
+
+    git_bin = shutil.which("git")
+    if not git_bin:
+        if verbose:
+            print(f"  {Colors.DIM}[Notice] Git is not installed. Skipping auto-update.{Colors.RESET}")
+        return False
+
+    try:
+        if verbose:
+            print(f"  {Colors.CYAN}Checking for updates from GitHub repository...{Colors.RESET}")
+
+        # Fetch remote quietly with timeout
+        fetch_res = subprocess.run(
+            [git_bin, "fetch", "--quiet"],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if fetch_res.returncode != 0:
+            if verbose:
+                err_msg = (fetch_res.stderr or "").strip() or "network/remote unreachable"
+                print(f"  {Colors.YELLOW}[Notice] Could not fetch updates from GitHub ({err_msg}). Continuing with current version.{Colors.RESET}")
+            return False
+
+        # Attempt pull --ff-only
+        pull_res = subprocess.run(
+            [git_bin, "pull", "--ff-only"],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if pull_res.returncode == 0:
+            out = (pull_res.stdout or "").strip()
+            if "Already up to date." in out or "Already up-to-date." in out:
+                if verbose:
+                    print(f"  {Colors.GREEN}[OK] Neverland repository is up to date.{Colors.RESET}")
+            else:
+                print(f"  {Colors.GREEN}[OK] Updated Neverland to the latest version from GitHub!{Colors.RESET}")
+                _sync_updated_dependencies()
+            return True
+        else:
+            err = (pull_res.stderr or pull_res.stdout or "").strip()
+            if verbose:
+                print(f"  {Colors.YELLOW}[Notice] Auto-update skipped ({err or 'local changes present'}). Continuing...{Colors.RESET}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        if verbose:
+            print(f"  {Colors.YELLOW}[Notice] Update check timed out. Continuing with current version.{Colors.RESET}")
+        return False
+    except Exception as e:
+        if verbose:
+            print(f"  {Colors.YELLOW}[Notice] Auto-update check skipped: {e}{Colors.RESET}")
+        return False
+
+
+def cmd_update(args):
+    print_banner()
+    print(f"\n{Colors.BOLD}Updating Neverland from GitHub repository...{Colors.RESET}")
+    success = update_from_github(verbose=True)
+    if success:
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[OK] Update completed successfully.{Colors.RESET}\n")
+    else:
+        print(f"\n{Colors.YELLOW}[Notice] Update finished with no new changes or was skipped.{Colors.RESET}\n")
+
+
+def cmd_ffmpeg(args):
+    print_banner()
+    print(f"\n{Colors.BOLD}Checking FFmpeg status...{Colors.RESET}")
+    force = getattr(args, "reinstall", False)
+    ensure_ffmpeg(force=force)
+    print()
+
+
+# =====================================================================
 # COMMAND: START
 # =====================================================================
 
@@ -550,6 +907,14 @@ def cmd_start(args):
     if getattr(args, "bot_only", False) and getattr(args, "dashboard_only", False):
         print(f"{Colors.RED}Error: Cannot specify both --bot-only and --dashboard-only simultaneously.{Colors.RESET}")
         sys.exit(1)
+
+    # 1. Automatic Update from GitHub Repository
+    if not getattr(args, "no_update", False):
+        update_from_github(verbose=True)
+
+    # 2. Verify / Auto-Install FFmpeg (skips if already present)
+    if not getattr(args, "skip_ffmpeg", False):
+        ensure_ffmpeg()
 
     raw_mode = getattr(args, "mode", None)
     mode = resolve_active_mode(raw_mode)
@@ -1104,6 +1469,8 @@ def main():
     p_start.add_argument("-d", "--daemon", action="store_true", help="Run processes in background daemon mode")
     p_start.add_argument("--bot-only", action="store_true", help="Start only the Discord Bot")
     p_start.add_argument("--dashboard-only", action="store_true", help="Start only the Web Dashboard")
+    p_start.add_argument("--no-update", action="store_true", help="Skip checking for GitHub updates before starting")
+    p_start.add_argument("--skip-ffmpeg", action="store_true", help="Skip checking/installing FFmpeg before starting")
     p_start.set_defaults(func=cmd_start)
 
     # stop
@@ -1114,11 +1481,22 @@ def main():
     p_restart = subparsers.add_parser("restart", help="Restart Bot and Dashboard services")
     p_restart.add_argument("-m", "--mode", choices=MODE_CHOICES, help="Mode to restart in (dev or prod/publish)")
     p_restart.add_argument("-d", "--daemon", action="store_true", help="Restart in background daemon mode")
+    p_restart.add_argument("--no-update", action="store_true", help="Skip checking for GitHub updates on restart")
+    p_restart.add_argument("--skip-ffmpeg", action="store_true", help="Skip checking/installing FFmpeg on restart")
     p_restart.set_defaults(func=cmd_restart)
 
     # status
     p_status = subparsers.add_parser("status", help="Show real-time status of Bot, Dashboard, and Database")
     p_status.set_defaults(func=cmd_status)
+
+    # update
+    p_update = subparsers.add_parser("update", help="Update Neverland from GitHub repository and sync dependencies")
+    p_update.set_defaults(func=cmd_update)
+
+    # ffmpeg
+    p_ffmpeg = subparsers.add_parser("ffmpeg", help="Check or install FFmpeg for audio and voice features")
+    p_ffmpeg.add_argument("--install", "--reinstall", action="store_true", dest="reinstall", help="Force install or reinstall FFmpeg")
+    p_ffmpeg.set_defaults(func=cmd_ffmpeg)
 
     # logs
     p_logs = subparsers.add_parser("logs", help="View service logs")
