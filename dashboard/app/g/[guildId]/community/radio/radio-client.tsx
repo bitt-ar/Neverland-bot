@@ -19,7 +19,6 @@ import {
   FileAudio,
   Shield,
   Layers,
-  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,7 +30,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface RadioBot {
@@ -571,7 +569,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
 
       {/* Main Tabs */}
       <Tabs defaultValue="dispatcher" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 lg:w-[480px] bg-muted/40 p-1 border border-border/50 rounded-lg">
+        <TabsList className="grid w-full grid-cols-3 lg:w-[380px] bg-muted/40 p-1 border border-border/50 rounded-lg">
           <TabsTrigger
             value="dispatcher"
             className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs transition-all text-xs"
@@ -588,13 +586,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
             value="bots"
             className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs transition-all text-xs"
           >
-            Bots (3)
-          </TabsTrigger>
-          <TabsTrigger
-            value="settings"
-            className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs transition-all text-xs"
-          >
-            Settings
+            Bots ({config.radio_bots_count || 3})
           </TabsTrigger>
         </TabsList>
 
@@ -1047,10 +1039,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
               <p className="text-muted-foreground">
                 Discord limits a single bot account to 1 voice connection per server. Currently,{" "}
                 <strong>{config.radio_bots_count || 3} bot {config.radio_bots_count === 1 ? "instance" : "instances"}</strong>{" "}
-                are enabled in your environment. Tokens are securely encrypted using AES-256 at rest.
-                {(config.radio_bots_count || 3) < 3 && (
-                  <span> To change the number of active bots (1 to 3), run <code className="bg-background px-1 rounded font-mono">neverland config</code>.</span>
-                )}
+                are enabled. Tokens are securely encrypted using AES-256 at rest.
               </p>
             </div>
           </div>
@@ -1060,9 +1049,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
               <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-3 opacity-40" />
               <h3 className="text-base font-semibold">Single Bot Mode Enabled</h3>
               <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                Auxiliary bots are disabled under current configuration (RADIO_BOTS_COUNT=1).
-                The primary bot manages all voice streaming for one channel at a time.
-                To activate auxiliary bots for multiple concurrent channels, update your configuration with <code className="font-mono bg-muted px-1.5 py-0.5 rounded">neverland config</code>.
+                Auxiliary bots are disabled. The primary bot manages voice streaming for one channel at a time.
               </p>
             </Card>
           ) : (
@@ -1248,67 +1235,15 @@ export function RadioClient({ guildId }: { guildId: string }) {
                       <Bot className="h-5 w-5 text-muted-foreground" />
                       <CardTitle className="text-base text-muted-foreground">Auxiliary Bot 2 (Slot 2)</CardTitle>
                     </div>
-                    <CardDescription>Slot disabled under current configuration (RADIO_BOTS_COUNT=2).</CardDescription>
+                    <CardDescription>Slot disabled under current server configuration.</CardDescription>
                   </CardHeader>
                   <CardContent className="text-xs text-muted-foreground">
-                    To enable a 3rd concurrent voice stream, set Radio Bots to 3 in <code className="font-mono bg-muted px-1.5 py-0.5 rounded">neverland config</code>.
+                    This slot is currently disabled by the bot owner.
                   </CardContent>
                 </Card>
               )}
             </div>
           )}
-        </TabsContent>
-
-        {/* TAB 4: RADIO SETTINGS */}
-        <TabsContent value="settings" className="space-y-6">
-          <Card className="max-w-2xl border-primary/20">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-base">Radio Storage & Quota Policy</CardTitle>
-                </div>
-                <Badge variant="outline" className="gap-1 border-primary/40 bg-primary/10 text-primary text-xs">
-                  <Lock className="h-3 w-3" /> Enforced by Bot Owner
-                </Badge>
-              </div>
-              <CardDescription>
-                Storage constraints are globally governed by the Bot Owner via the server environment (.env).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border p-4 bg-muted/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Maximum Storage Allowed Per Playlist:</span>
-                  <span className="text-base font-bold text-primary">{config.max_playlist_storage_mb} MB</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Configured in <code className="bg-background px-1.5 py-0.5 rounded text-xs border font-mono">.env</code> via <code className="bg-background px-1.5 py-0.5 rounded text-xs border font-mono">RADIO_MAX_PLAYLIST_STORAGE_MB</code>.
-                  Whenever the bot restarts, it updates and syncs the database with this value to ensure server and disk resources are protected.
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2 text-xs text-muted-foreground">
-                <p className="font-semibold text-foreground">Specifications & Active Constraints:</p>
-                <ul className="list-disc list-inside space-y-1.5 pl-1">
-                  <li>Maximum <strong>{config.max_playlists_per_guild || 6} playlists</strong> allowed per Discord server.</li>
-                  <li>Storage quota: <strong>{config.max_playlist_storage_mb} MB</strong> per playlist (validated at backend and database layers).</li>
-                  <li>
-                    Server total capacity: {config.max_playlists_per_guild || 6} playlists × {config.max_playlist_storage_mb} MB ={" "}
-                    <strong className="text-primary font-mono">{(config.max_playlists_per_guild || 6) * config.max_playlist_storage_mb} MB</strong> maximum audio storage.
-                  </li>
-                  <li>Single audio track upload limit: <strong>{config.max_upload_size_mb || 25} MB</strong>.</li>
-                  <li>Allowed audio formats: MP3, OGG, WAV, FLAC (magic bytes binary validation enforced).</li>
-                  <li>
-                    Concurrent streaming capacity: Up to {config.radio_bots_count || 3} separate voice channels simultaneously{" "}
-                    ({(config.radio_bots_count || 3) === 1 ? "Main Bot only" : (config.radio_bots_count || 3) === 2 ? "Main + 1 Aux Bot" : "Main + 2 Aux Bots"}).
-                  </li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>
