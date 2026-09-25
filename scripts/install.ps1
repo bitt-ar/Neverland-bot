@@ -6,6 +6,7 @@
 # ==============================================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ProgressPreference = 'SilentlyContinue'
 
 Write-Host @"
 
@@ -203,6 +204,20 @@ if (-not $PythonExe) {
 
 # 3. Check Node.js (v18.18+ required for Next.js 15)
 Write-Host "Checking Node.js..." -ForegroundColor Cyan
+
+$NodeDir = Join-Path $HOME ".neverland\node"
+$commonNodeDirs = @(
+    $NodeDir,
+    "$env:ProgramFiles\nodejs",
+    "${env:ProgramFiles(x86)}\nodejs",
+    "$env:LOCALAPPDATA\Programs\node"
+)
+foreach ($nd in $commonNodeDirs) {
+    if ((Test-Path "$nd\node.exe") -and ($env:Path -notlike "*$nd*")) {
+        $env:Path = "$nd;$env:Path"
+    }
+}
+
 $NodeOk = $false
 if (Get-Command node -ErrorAction SilentlyContinue) {
     $nodeVer = & node -v
@@ -221,35 +236,60 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
 }
 
 if (-not $NodeOk) {
-    Write-Host "  Attempting to install Node.js LTS via winget..." -ForegroundColor Yellow
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        if (Get-Command node -ErrorAction SilentlyContinue) {
-            $nodeVer = & node -v
-            $NodeOk = $true
-            Write-Host "  [OK] Node.js installed successfully: $nodeVer" -ForegroundColor Green
+    Write-Host "  Node.js 18+ not found. Downloading standalone portable Node.js LTS (zero-admin)..." -ForegroundColor Cyan
+    $NodeZipUrl = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip"
+    $TempZip = Join-Path ([System.IO.Path]::GetTempPath()) "node-v20-win-x64.zip"
+    $TempExtract = Join-Path ([System.IO.Path]::GetTempPath()) "node-extract-$([System.Guid]::NewGuid().ToString('N'))"
+    try {
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+        Write-Host "  Downloading portable Node.js v20 LTS archive (~28 MB)..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $NodeZipUrl -OutFile $TempZip -UseBasicParsing
+        Write-Host "  Extracting Node.js into $NodeDir..." -ForegroundColor Cyan
+        Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
+        
+        $ExtractedNode = (Get-ChildItem -Path $TempExtract -Directory | Select-Object -First 1).FullName
+        if (-not (Test-Path $NodeDir)) {
+            New-Item -ItemType Directory -Path $NodeDir -Force | Out-Null
         }
-    }
-    if (-not $NodeOk) {
-        Write-Host "  winget unavailable. Downloading official Node.js installer from nodejs.org..." -ForegroundColor Yellow
-        $NodeMsi = Join-Path ([System.IO.Path]::GetTempPath()) "node-v20-x64.msi"
+        Copy-Item -Path "$ExtractedNode\*" -Destination $NodeDir -Recurse -Force
+        
+        Remove-Item -Recurse -Force $TempExtract -ErrorAction SilentlyContinue
+        Remove-Item -Force $TempZip -ErrorAction SilentlyContinue
+        
+        $env:Path = "$NodeDir;$env:Path"
+        
         try {
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
-            Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi" -OutFile $NodeMsi -UseBasicParsing
-            Write-Host "  Installing Node.js LTS silently..." -ForegroundColor Cyan
-            Start-Process msiexec.exe -ArgumentList "/i `"$NodeMsi`" /qn" -Wait
-            Remove-Item -Force $NodeMsi -ErrorAction SilentlyContinue
+            $UserKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+            if ($UserKey) {
+                $cur = $UserKey.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                if ($cur -notlike "*$NodeDir*") {
+                    $newP = if ($cur) { "$cur;$NodeDir" } else { $NodeDir }
+                    $UserKey.SetValue("Path", $newP, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                }
+                $UserKey.Close()
+            }
+        } catch {}
+
+        if (Test-Path "$NodeDir\node.exe") {
+            $nodeVer = & "$NodeDir\node.exe" -v
+            $NodeOk = $true
+            Write-Host "  [OK] Standalone portable Node.js installed successfully: $nodeVer" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  [Notice] Portable Node.js download failed: $_. Trying winget..." -ForegroundColor Yellow
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
             if (Get-Command node -ErrorAction SilentlyContinue) {
                 $nodeVer = & node -v
                 $NodeOk = $true
                 Write-Host "  [OK] Node.js installed successfully: $nodeVer" -ForegroundColor Green
             }
-        } catch {}
+        }
     }
+
     if (-not $NodeOk) {
-        Write-Host "  [Notice] Please install Node.js 18+ from https://nodejs.org/ if web dashboard is needed." -ForegroundColor Yellow
+        Write-Host "  [Notice] Node.js could not be installed automatically. Please install Node.js 18+ from https://nodejs.org/ for the web dashboard." -ForegroundColor Yellow
     }
 }
 
@@ -344,10 +384,19 @@ Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
 if (Test-Path "$InstallDir\dashboard\package.json") {
     Write-Host "`nInstalling Web Dashboard dependencies..." -ForegroundColor Cyan
     Set-Location "$InstallDir\dashboard"
+    
+    $npmExe = $null
     if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-        pnpm install
+        $npmExe = "pnpm"
+    } elseif (Test-Path "$NodeDir\npm.cmd") {
+        $npmExe = "$NodeDir\npm.cmd"
     } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
-        npm install
+        $npmExe = "npm"
+    }
+    
+    if ($npmExe) {
+        Write-Host "  Installing packages via $npmExe..." -ForegroundColor Cyan
+        & $npmExe install
     } else {
         Write-Host "  [Warning] Neither pnpm nor npm found. Please install Node.js (https://nodejs.org) to build the dashboard." -ForegroundColor Yellow
     }
@@ -364,6 +413,7 @@ if (-not (Test-Path $BinDir)) {
 $CmdShim = Join-Path $BinDir "neverland.cmd"
 $CmdContent = @"
 @echo off
+set "PATH=%USERPROFILE%\.neverland\node;%USERPROFILE%\.neverland\bin;%PATH%"
 cd /d "$InstallDir"
 "$VenvPython" -m cli %*
 "@

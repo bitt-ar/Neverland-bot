@@ -509,11 +509,22 @@ def refresh_env_path():
     """Ensure user binary directories and registry/system paths are in os.environ['PATH']."""
     current_paths = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
     bin_dir = str(get_user_bin_dir())
+    node_dir = str(Path.home() / ".neverland" / "node")
 
-    if bin_dir not in current_paths:
-        current_paths.insert(0, bin_dir)
+    for d in [bin_dir, node_dir]:
+        if d not in current_paths:
+            current_paths.insert(0, d)
 
     if platform.system() == "Windows":
+        common_nodes = [
+            os.path.expandvars(r"%ProgramFiles%\nodejs"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\nodejs"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\node"),
+        ]
+        for cn in common_nodes:
+            if os.path.exists(cn) and cn not in current_paths:
+                current_paths.insert(0, cn)
+
         try:
             import winreg
             for hkey in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -870,9 +881,14 @@ def is_process_running(pid: int) -> bool:
 
 
 def find_npm_runner() -> str:
+    refresh_env_path()
     for cmd in ["pnpm", "npm", "yarn"]:
         if shutil.which(cmd):
             return cmd
+    if platform.system() == "Windows":
+        portable_npm = Path.home() / ".neverland" / "node" / "npm.cmd"
+        if portable_npm.exists():
+            return str(portable_npm)
     return "npm"
 
 
