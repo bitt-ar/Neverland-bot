@@ -20,6 +20,21 @@ Write-Host " Neverland Universal Installer for Windows" -ForegroundColor White
 Write-Host " Created by bitt-ar | https://github.com/bitt-ar/Neverland-bot" -ForegroundColor Cyan
 Write-Host "----------------------------------------------------------------------`n"
 
+# 0. Helper Functions
+function Exit-WithPrompt {
+    param([int]$ExitCode = 1, [string]$Message = "")
+    if ($Message) {
+        Write-Host $Message -ForegroundColor Red
+    }
+    try {
+        if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+            Write-Host "`nPress Enter to exit..." -ForegroundColor Gray
+            [void][Console]::ReadLine()
+        }
+    } catch {}
+    exit $ExitCode
+}
+
 # 1. Determine Installation Target
 $InstallDir = $PWD.Path
 if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dashboard")) {
@@ -29,12 +44,10 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
         if (Get-Command git -ErrorAction SilentlyContinue) {
             git clone https://github.com/bitt-ar/Neverland-bot.git "$InstallDir"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$InstallDir\main.py")) {
-                Write-Host "Failed to clone Neverland repository. Please check your internet connection and rerun." -ForegroundColor Red
-                exit 1
+                Exit-WithPrompt 1 "Failed to clone Neverland repository. Please check your internet connection and rerun."
             }
         } else {
-            Write-Host "Git is required to download Neverland. Please install Git and rerun this script." -ForegroundColor Red
-            exit 1
+            Exit-WithPrompt 1 "Git is required to download Neverland. Please install Git (https://git-scm.com/) and rerun this script."
         }
     } else {
         Write-Host "  Found existing Neverland directory at $InstallDir. Updating..." -ForegroundColor Gray
@@ -49,7 +62,7 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
 Write-Host "Checking Python 3.11+ installation..." -ForegroundColor Cyan
 $PythonExe = $null
 
-$PythonCandidates = @("python", "python3", "py", "py -3.12", "py -3.11")
+$PythonCandidates = @("python", "python3", "py", "py -3.14", "py -3.13", "py -3.12", "py -3.11")
 foreach ($cmd in $PythonCandidates) {
     $parts = $cmd -split '\s+'
     $exe = $parts[0]
@@ -57,6 +70,7 @@ foreach ($cmd in $PythonCandidates) {
     try {
         $ver = & $exe @exeArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
         if ($ver) {
+            $ver = $ver.Trim()
             $major = [int]($ver.Split('.')[0])
             $minor = [int]($ver.Split('.')[1])
             if ($major -ge 3 -and $minor -ge 11) {
@@ -82,6 +96,7 @@ if (-not $PythonExe) {
             try {
                 $ver = & $exe @exeArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
                 if ($ver) {
+                    $ver = $ver.Trim()
                     $major = [int]($ver.Split('.')[0])
                     $minor = [int]($ver.Split('.')[1])
                     if ($major -ge 3 -and $minor -ge 11) {
@@ -95,8 +110,7 @@ if (-not $PythonExe) {
     }
     
     if (-not $PythonExe) {
-        Write-Host "Please install Python 3.11 or newer from https://www.python.org/downloads/ and make sure to check 'Add Python to PATH'." -ForegroundColor Red
-        exit 1
+        Exit-WithPrompt 1 "Please install Python 3.11 or newer from https://www.python.org/downloads/ and make sure to check 'Add Python to PATH'."
     }
 }
 
@@ -176,7 +190,11 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
 if (-not (Test-Path $VenvPython)) {
     if (Test-Path $VenvDir) {
-        Remove-Item -Recurse -Force $VenvDir
+        try {
+            Remove-Item -Recurse -Force $VenvDir -ErrorAction Stop
+        } catch {
+            Write-Host "  [Notice] Existing .venv directory will be overwritten." -ForegroundColor Gray
+        }
     }
     $parts = $PythonExe -split '\s+'
     $exe = $parts[0]
@@ -185,8 +203,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 if (-not (Test-Path $VenvPython)) {
-    Write-Host "Failed to create virtual environment." -ForegroundColor Red
-    exit 1
+    Exit-WithPrompt 1 "Failed to create virtual environment in $VenvDir."
 }
 
 Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
@@ -201,6 +218,8 @@ if (Test-Path "$InstallDir\dashboard\package.json") {
         pnpm install
     } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
         npm install
+    } else {
+        Write-Host "  [Warning] Neither pnpm nor npm found. Please install Node.js (https://nodejs.org) to build the dashboard." -ForegroundColor Yellow
     }
     Set-Location $InstallDir
 }
@@ -244,22 +263,44 @@ try {
 
 Write-Host "  [OK] 'neverland' command registered successfully." -ForegroundColor Green
 
-# 7. First-Run Trigger: Launch neverland config
-Write-Host "`n======================================================================" -ForegroundColor Cyan
-Write-Host "Installation complete. Launching the interactive configuration wizard..." -ForegroundColor White
-Write-Host "======================================================================`n" -ForegroundColor Cyan
+# 7. First-Run Trigger: Launch neverland config (with interactive TTY detection)
+$IsInteractive = $false
+try {
+    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        $IsInteractive = $true
+    }
+} catch {
+    $IsInteractive = $false
+}
 
 Set-Location $InstallDir
-& $VenvPython -m cli config
 
-# 8. Auto-Start Trigger: Start Neverland services
-$DevEnv = Join-Path $InstallDir ".neverland\profiles\dev.env"
-$ProdEnv = Join-Path $InstallDir ".neverland\profiles\prod.env"
+if ($IsInteractive) {
+    Write-Host "`n======================================================================" -ForegroundColor Cyan
+    Write-Host "Installation complete. Launching the interactive configuration wizard..." -ForegroundColor White
+    Write-Host "======================================================================`n" -ForegroundColor Cyan
 
-if ((Test-Path $DevEnv) -or (Test-Path $ProdEnv)) {
-    Write-Host "`nStarting Neverland services..." -ForegroundColor Green
-    & $VenvPython -m cli start
+    & $VenvPython -m cli config
+
+    # 8. Auto-Start Trigger: Start Neverland services
+    $DevEnv = Join-Path $InstallDir ".neverland\profiles\dev.env"
+    $ProdEnv = Join-Path $InstallDir ".neverland\profiles\prod.env"
+
+    if ((Test-Path $DevEnv) -or (Test-Path $ProdEnv)) {
+        Write-Host "`nStarting Neverland services..." -ForegroundColor Green
+        & $VenvPython -m cli start
+    } else {
+        Write-Host "`nSetup completed." -ForegroundColor Green
+        Write-Host "Run 'neverland config' to configure your bot, then 'neverland start'." -ForegroundColor White
+    }
 } else {
-    Write-Host "`nSetup completed." -ForegroundColor Green
-    Write-Host "Run 'neverland config' to configure your bot, then 'neverland start'." -ForegroundColor White
+    Write-Host "`n======================================================================" -ForegroundColor Green
+    Write-Host "Neverland installed successfully (Pipeline / Non-Interactive Mode)!" -ForegroundColor White
+    Write-Host "======================================================================`n" -ForegroundColor Green
+    Write-Host "To configure your bot and dashboard interactively, run:" -ForegroundColor White
+    Write-Host "  neverland config`n" -ForegroundColor Cyan
+    Write-Host "Then start your services with:" -ForegroundColor White
+    Write-Host "  neverland start`n" -ForegroundColor Green
+    Write-Host "Or check real-time status with:" -ForegroundColor White
+    Write-Host "  neverland status`n" -ForegroundColor Cyan
 }

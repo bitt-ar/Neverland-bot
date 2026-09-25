@@ -85,18 +85,25 @@ def is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
 
 def check_mongodb_connection(uri: str, timeout_ms: int = 3000) -> tuple[bool, str]:
     """Proactively test MongoDB reachability with a short timeout to prevent 30s hangs."""
+    client = None
     try:
         from pymongo import MongoClient
         client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms)
         client.admin.command("ping")
-        client.close()
         return True, ""
     except Exception as e:
         return False, str(e)
+    finally:
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 # ANSI Color Codes
 class Colors:
     HEADER = "\033[95m"
+    MAGENTA = "\033[95m"
     BLUE = "\033[94m"
     CYAN = "\033[96m"
     GREEN = "\033[92m"
@@ -1078,10 +1085,40 @@ def cmd_start(args):
             while True:
                 time.sleep(1)
                 if bot_proc and bot_proc.poll() is not None:
-                    print(f"{Colors.RED}Discord Bot stopped unexpectedly (exit code {bot_proc.returncode}).{Colors.RESET}")
+                    code = bot_proc.returncode
+                    print(f"\n{Colors.RED}{Colors.BOLD}Discord Bot stopped unexpectedly (exit code {code}).{Colors.RESET}")
+                    bot_log_path = LOGS_DIR / "bot.log"
+                    if bot_log_path.exists():
+                        try:
+                            log_lines = bot_log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+                            if log_lines:
+                                print(f"{Colors.YELLOW}Recent Bot Log / Error Output:{Colors.RESET}")
+                                for l in log_lines[-10:]:
+                                    print(f"  {Colors.DIM}{l}{Colors.RESET}")
+                        except Exception:
+                            pass
+                    print(f"\n{Colors.YELLOW}Troubleshooting Tips:{Colors.RESET}")
+                    print(f"  1. Verify your Discord Bot Token with {Colors.BOLD}neverland config{Colors.RESET}")
+                    print(f"  2. Verify MongoDB is accessible ({env_vars.get('MONGODB_URI', 'mongodb://localhost:27017').split('@')[-1]})")
+                    print(f"  3. Check full logs with {Colors.BOLD}neverland logs --bot{Colors.RESET}\n")
                     break
                 if dash_proc and dash_proc.poll() is not None:
-                    print(f"{Colors.RED}Dashboard stopped unexpectedly (exit code {dash_proc.returncode}).{Colors.RESET}")
+                    code = dash_proc.returncode
+                    print(f"\n{Colors.RED}{Colors.BOLD}Dashboard stopped unexpectedly (exit code {code}).{Colors.RESET}")
+                    dash_log_path = LOGS_DIR / "dashboard.log"
+                    if dash_log_path.exists():
+                        try:
+                            log_lines = dash_log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+                            if log_lines:
+                                print(f"{Colors.YELLOW}Recent Dashboard Log / Error Output:{Colors.RESET}")
+                                for l in log_lines[-10:]:
+                                    print(f"  {Colors.DIM}{l}{Colors.RESET}")
+                        except Exception:
+                            pass
+                    print(f"\n{Colors.YELLOW}Troubleshooting Tips:{Colors.RESET}")
+                    print(f"  1. Check if port {env.get('PORT', '3000')} is already in use by another application")
+                    print(f"  2. Run {Colors.BOLD}neverland build{Colors.RESET} to rebuild the production bundle")
+                    print(f"  3. Check full logs with {Colors.BOLD}neverland logs --dashboard{Colors.RESET}\n")
                     break
         except KeyboardInterrupt:
             print("\nShutting down services...")
@@ -1438,8 +1475,49 @@ def cmd_uninstall(args):
 
 
 # =====================================================================
-# CLI PARSER DEFINITION
+# CLI PARSER DEFINITION & INTERACTIVE LAUNCHER
 # =====================================================================
+
+def cmd_menu(parser):
+    """Interactive navigation menu when CLI is launched without arguments in an interactive terminal."""
+    print_banner()
+    state = get_state()
+    active = state.get("active_mode") or ("prod" if (PROFILES_DIR / "prod.env").exists() else ("dev" if (PROFILES_DIR / "dev.env").exists() else "None"))
+    print(f"\n{Colors.BOLD}Neverland Interactive CLI{Colors.RESET} (Active Profile: {Colors.CYAN}{active}{Colors.RESET})\n")
+    print(f"  {Colors.BOLD}[1]{Colors.RESET} Start Bot & Web Dashboard ({Colors.GREEN}neverland start{Colors.RESET})")
+    print(f"  {Colors.BOLD}[2]{Colors.RESET} Check System Status ({Colors.CYAN}neverland status{Colors.RESET})")
+    print(f"  {Colors.BOLD}[3]{Colors.RESET} Interactive Configuration Wizard ({Colors.YELLOW}neverland config{Colors.RESET})")
+    print(f"  {Colors.BOLD}[4]{Colors.RESET} View Service Logs ({Colors.DIM}neverland logs{Colors.RESET})")
+    print(f"  {Colors.BOLD}[5]{Colors.RESET} Check & Pull GitHub Updates ({Colors.BLUE}neverland update{Colors.RESET})")
+    print(f"  {Colors.BOLD}[6]{Colors.RESET} Check / Install FFmpeg ({Colors.MAGENTA}neverland ffmpeg{Colors.RESET})")
+    print(f"  {Colors.BOLD}[7]{Colors.RESET} Build Production Next.js Bundle ({Colors.CYAN}neverland build{Colors.RESET})")
+    print(f"  {Colors.BOLD}[8]{Colors.RESET} Show Full Command Help")
+    print(f"  {Colors.BOLD}[0]{Colors.RESET} Exit\n")
+
+    try:
+        choice = prompt_input("Select an action (0-8)", default="1")
+    except (KeyboardInterrupt, EOFError):
+        print("\nExiting.")
+        sys.exit(0)
+
+    mapping = {
+        "1": ["start"],
+        "2": ["status"],
+        "3": ["config"],
+        "4": ["logs"],
+        "5": ["update"],
+        "6": ["ffmpeg"],
+        "7": ["build"],
+    }
+    if choice in mapping:
+        sub_args = parser.parse_args(mapping[choice])
+        sub_args.func(sub_args)
+    elif choice == "8":
+        parser.print_help()
+    else:
+        print("Exiting Neverland.")
+        sys.exit(0)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1520,6 +1598,9 @@ def main():
     args = parser.parse_args()
 
     if not args.command:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            cmd_menu(parser)
+            return
         print_banner()
         parser.print_help()
         sys.exit(0)
