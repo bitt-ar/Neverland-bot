@@ -1038,7 +1038,7 @@ def find_stray_bot_processes() -> list[int]:
                 capture_output=True, text=True, check=False
             )
             for line in res.stdout.splitlines():
-                if "main.py" in line:
+                if re.search(r"(?:^|[\s\\/])main\.py(?:\s|$)", line):
                     parts = line.strip().split()
                     if parts and parts[-1].isdigit():
                         p = int(parts[-1])
@@ -1050,7 +1050,7 @@ def find_stray_bot_processes() -> list[int]:
         try:
             res = subprocess.run(["ps", "-eo", "pid,args"], capture_output=True, text=True, check=False)
             for line in res.stdout.splitlines():
-                if ("main.py" in line) and ("python" in line):
+                if ("python" in line) and re.search(r"(?:^|[\s/])main\.py(?:\s|$)", line):
                     parts = line.strip().split()
                     if parts and parts[0].isdigit():
                         p = int(parts[0])
