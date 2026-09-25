@@ -153,15 +153,57 @@ if [ ! -f "$INSTALL_DIR/main.py" ] || [ ! -d "$INSTALL_DIR/dashboard" ]; then
     INSTALL_DIR="$HOME/Neverland-bot"
     echo -e "${C_YELLOW}Installing Neverland to: ${C_BOLD}$INSTALL_DIR${C_RESET}"
     if [ ! -d "$INSTALL_DIR" ]; then
+        DOWNLOAD_OK=false
         if command -v git >/dev/null 2>&1; then
+            echo -e "${C_CYAN}Cloning Neverland repository via Git...${C_RESET}"
             git clone https://github.com/bitt-ar/Neverland-bot.git "$INSTALL_DIR"
-        else
-            echo -e "${C_RED}Error: Git is required to download Neverland. Please install git and retry.${C_RESET}"
+            if [ $? -eq 0 ] && [ -f "$INSTALL_DIR/main.py" ]; then
+                DOWNLOAD_OK=true
+            fi
+        fi
+
+        if [ "$DOWNLOAD_OK" = false ]; then
+            echo -e "${C_CYAN}Git not available. Downloading Neverland source archive from GitHub...${C_RESET}"
+            ZIP_TMP="/tmp/neverland-$$.zip"
+            EXTRACT_TMP="/tmp/neverland-extract-$$"
+            mkdir -p "$EXTRACT_TMP" "$INSTALL_DIR"
+            
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL "https://github.com/bitt-ar/Neverland-bot/archive/refs/heads/main.zip" -o "$ZIP_TMP"
+            elif command -v wget >/dev/null 2>&1; then
+                wget -q "https://github.com/bitt-ar/Neverland-bot/archive/refs/heads/main.zip" -O "$ZIP_TMP"
+            fi
+
+            if [ -f "$ZIP_TMP" ]; then
+                if command -v unzip >/dev/null 2>&1; then
+                    unzip -q "$ZIP_TMP" -d "$EXTRACT_TMP"
+                elif command -v python3 >/dev/null 2>&1; then
+                    python3 -m zipfile -e "$ZIP_TMP" "$EXTRACT_TMP" 2>/dev/null || true
+                fi
+
+                SRC_DIR=$(find "$EXTRACT_TMP" -maxdepth 1 -type d -name "Neverland-bot*" | head -n 1)
+                if [ -n "$SRC_DIR" ] && [ -d "$SRC_DIR" ]; then
+                    cp -rf "$SRC_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+                    cp -rf "$SRC_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
+                fi
+                rm -rf "$ZIP_TMP" "$EXTRACT_TMP"
+
+                if [ -f "$INSTALL_DIR/main.py" ]; then
+                    DOWNLOAD_OK=true
+                    echo -e "${C_GREEN}[OK] Successfully downloaded Neverland without Git.${C_RESET}"
+                fi
+            fi
+        fi
+
+        if [ "$DOWNLOAD_OK" = false ] || [ ! -f "$INSTALL_DIR/main.py" ]; then
+            echo -e "${C_RED}Error: Failed to download Neverland. Please check your internet connection or install git.${C_RESET}"
             exit 1
         fi
     else
         echo -e "  Found existing Neverland installation at $INSTALL_DIR. Updating repository..."
-        (cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null || true)
+        if command -v git >/dev/null 2>&1 && [ -d "$INSTALL_DIR/.git" ]; then
+            (cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null || true)
+        fi
     fi
     cd "$INSTALL_DIR"
 fi

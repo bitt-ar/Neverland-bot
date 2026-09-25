@@ -41,19 +41,71 @@ if (-not (Test-Path "$InstallDir\main.py") -or -not (Test-Path "$InstallDir\dash
     $InstallDir = "$HOME\Neverland-bot"
     Write-Host "Installing Neverland to: $InstallDir" -ForegroundColor Yellow
     if (-not (Test-Path $InstallDir)) {
+        $DownloadOk = $false
+
+        # Strategy A: Clone using Git if available
         if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-Host "Cloning Neverland repository via Git..." -ForegroundColor Cyan
             git clone https://github.com/bitt-ar/Neverland-bot.git "$InstallDir"
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$InstallDir\main.py")) {
-                Exit-WithPrompt 1 "Failed to clone Neverland repository. Please check your internet connection and rerun."
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$InstallDir\main.py")) {
+                $DownloadOk = $true
             }
-        } else {
-            Exit-WithPrompt 1 "Git is required to download Neverland. Please install Git (https://git-scm.com/) and rerun this script."
+        }
+
+        # Strategy B: Try installing Git via winget
+        if (-not $DownloadOk -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Host "Git not found or clone failed. Attempting to install Git via winget..." -ForegroundColor Yellow
+            winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            if (Get-Command git -ErrorAction SilentlyContinue) {
+                Write-Host "Cloning Neverland repository via newly installed Git..." -ForegroundColor Cyan
+                git clone https://github.com/bitt-ar/Neverland-bot.git "$InstallDir"
+                if ($LASTEXITCODE -eq 0 -and (Test-Path "$InstallDir\main.py")) {
+                    $DownloadOk = $true
+                }
+            }
+        }
+
+        # Strategy C: Zero-Dependency Fallback: Download Neverland archive directly from GitHub
+        if (-not $DownloadOk) {
+            Write-Host "Git is not installed. Downloading Neverland source package directly from GitHub..." -ForegroundColor Cyan
+            $ZipUrl = "https://github.com/bitt-ar/Neverland-bot/archive/refs/heads/main.zip"
+            $TempZip = Join-Path ([System.IO.Path]::GetTempPath()) "Neverland-bot-main.zip"
+            $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "Neverland-bot-temp-$([System.Guid]::NewGuid().ToString('N'))"
+            try {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+                Invoke-WebRequest -Uri $ZipUrl -OutFile $TempZip -UseBasicParsing
+                Expand-Archive -Path $TempZip -DestinationPath $TempDir -Force
+                $Extracted = Join-Path $TempDir "Neverland-bot-main"
+                if (-not (Test-Path $Extracted)) {
+                    $firstDir = Get-ChildItem -Path $TempDir -Directory | Select-Object -First 1
+                    if ($firstDir) { $Extracted = $firstDir.FullName }
+                }
+                New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+                Copy-Item -Path "$Extracted\*" -Destination $InstallDir -Recurse -Force
+                Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
+                Remove-Item -Force $TempZip -ErrorAction SilentlyContinue
+                if (Test-Path "$InstallDir\main.py") {
+                    $DownloadOk = $true
+                    Write-Host "  [OK] Successfully downloaded Neverland without Git!" -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "  Direct download failed: $_" -ForegroundColor Red
+            }
+        }
+
+        if (-not $DownloadOk -or -not (Test-Path "$InstallDir\main.py")) {
+            Exit-WithPrompt 1 "Failed to download Neverland repository. Please check your internet connection."
         }
     } else {
         Write-Host "  Found existing Neverland directory at $InstallDir. Updating..." -ForegroundColor Gray
-        Push-Location $InstallDir
-        git pull --ff-only 2>$null
-        Pop-Location
+        if (Get-Command git -ErrorAction SilentlyContinue -and (Test-Path "$InstallDir\.git")) {
+            Push-Location $InstallDir
+            git pull --ff-only 2>$null
+            Pop-Location
+        } else {
+            Write-Host "  [Notice] Found existing Neverland installation. Proceeding with configuration..." -ForegroundColor Gray
+        }
     }
     Set-Location $InstallDir
 }
@@ -110,6 +162,41 @@ if (-not $PythonExe) {
     }
     
     if (-not $PythonExe) {
+        Write-Host "  winget unavailable or failed. Downloading official Python 3.11 from python.org..." -ForegroundColor Yellow
+        $PyInstaller = Join-Path ([System.IO.Path]::GetTempPath()) "python-3.11.9-amd64.exe"
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $PyInstaller -UseBasicParsing
+            Write-Host "  Installing Python 3.11 silently (this may take a minute)..." -ForegroundColor Cyan
+            Start-Process -FilePath $PyInstaller -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0" -Wait
+            Remove-Item -Force $PyInstaller -ErrorAction SilentlyContinue
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+            $verifyCandidates = @("py -3.11", "python", "python3", "py")
+            foreach ($cmd in $verifyCandidates) {
+                $parts = $cmd -split '\s+'
+                $exe = $parts[0]
+                $exeArgs = if ($parts.Length -gt 1) { $parts[1..($parts.Length - 1)] } else { @() }
+                try {
+                    $ver = & $exe @exeArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+                    if ($ver) {
+                        $ver = $ver.Trim()
+                        $major = [int]($ver.Split('.')[0])
+                        $minor = [int]($ver.Split('.')[1])
+                        if ($major -ge 3 -and $minor -ge 11) {
+                            $PythonExe = $cmd
+                            Write-Host "  [OK] Python installed successfully: $cmd ($ver)" -ForegroundColor Green
+                            break
+                        }
+                    }
+                } catch {}
+            }
+        } catch {
+            Write-Host "  Direct Python download failed: $_" -ForegroundColor Red
+        }
+    }
+    
+    if (-not $PythonExe) {
         Exit-WithPrompt 1 "Please install Python 3.11 or newer from https://www.python.org/downloads/ and make sure to check 'Add Python to PATH'."
     }
 }
@@ -140,10 +227,29 @@ if (-not $NodeOk) {
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         if (Get-Command node -ErrorAction SilentlyContinue) {
             $nodeVer = & node -v
+            $NodeOk = $true
             Write-Host "  [OK] Node.js installed successfully: $nodeVer" -ForegroundColor Green
         }
-    } else {
-        Write-Host "Please install Node.js 18+ from https://nodejs.org/" -ForegroundColor Yellow
+    }
+    if (-not $NodeOk) {
+        Write-Host "  winget unavailable. Downloading official Node.js installer from nodejs.org..." -ForegroundColor Yellow
+        $NodeMsi = Join-Path ([System.IO.Path]::GetTempPath()) "node-v20-x64.msi"
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi" -OutFile $NodeMsi -UseBasicParsing
+            Write-Host "  Installing Node.js LTS silently..." -ForegroundColor Cyan
+            Start-Process msiexec.exe -ArgumentList "/i `"$NodeMsi`" /qn" -Wait
+            Remove-Item -Force $NodeMsi -ErrorAction SilentlyContinue
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            if (Get-Command node -ErrorAction SilentlyContinue) {
+                $nodeVer = & node -v
+                $NodeOk = $true
+                Write-Host "  [OK] Node.js installed successfully: $nodeVer" -ForegroundColor Green
+            }
+        } catch {}
+    }
+    if (-not $NodeOk) {
+        Write-Host "  [Notice] Please install Node.js 18+ from https://nodejs.org/ if web dashboard is needed." -ForegroundColor Yellow
     }
 }
 
@@ -179,7 +285,31 @@ if (-not $FfmpegOk) {
         }
     }
     if (-not $FfmpegOk) {
-        Write-Host "  [Notice] FFmpeg will also be checked and auto-managed by the Neverland CLI." -ForegroundColor Yellow
+        Write-Host "  winget/choco not available. Downloading standalone FFmpeg for Windows..." -ForegroundColor Yellow
+        $BinDir = Join-Path $HOME ".neverland\bin"
+        if (-not (Test-Path $BinDir)) { New-Item -ItemType Directory -Path $BinDir -Force | Out-Null }
+        $ZipUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        $TmpZip = Join-Path ([System.IO.Path]::GetTempPath()) "ffmpeg_temp.zip"
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Invoke-WebRequest -Uri $ZipUrl -OutFile $TmpZip -UseBasicParsing
+            $TmpExtract = Join-Path ([System.IO.Path]::GetTempPath()) "ffmpeg_extract_$([System.Guid]::NewGuid().ToString('N'))"
+            Expand-Archive -Path $TmpZip -DestinationPath $TmpExtract -Force
+            Get-ChildItem -Path $TmpExtract -Recurse -Filter "ffmpeg.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination $BinDir -Force }
+            Get-ChildItem -Path $TmpExtract -Recurse -Filter "ffprobe.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination $BinDir -Force }
+            Remove-Item -Recurse -Force $TmpExtract -ErrorAction SilentlyContinue
+            Remove-Item -Force $TmpZip -ErrorAction SilentlyContinue
+            $env:Path = "$env:Path;$BinDir"
+            if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+                $FfmpegOk = $true
+                Write-Host "  [OK] Standalone FFmpeg installed successfully." -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "  [Notice] Standalone FFmpeg download skipped: $_" -ForegroundColor Gray
+        }
+    }
+    if (-not $FfmpegOk) {
+        Write-Host "  [Notice] FFmpeg can also be checked and installed anytime via 'neverland ffmpeg'." -ForegroundColor Yellow
     }
 }
 
