@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_fernet_key() -> bytes:
-    """Derive a stable 32-byte urlsafe base64-encoded key from RADIO_ENCRYPTION_KEY or legacy secrets."""
+    """Derive a stable 32-byte urlsafe base64-encoded key from RADIO_ENCRYPTION_KEY."""
     secret = config.RADIO_ENCRYPTION_KEY
     if secret:
         raw = secret.strip()
@@ -25,23 +25,24 @@ def _get_fernet_key() -> bytes:
         digest = hashlib.sha256(raw.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(digest)
 
-    # Backward-compatibility fallback for existing deployments
-    fallback = config.CONTROL_PLANE_SECRET or config.TOKEN
-    if fallback:
+    # In production or when strictly enabled, missing key is a fatal error
+    if os.getenv("ENVIRONMENT") == "production" or os.getenv("AUTH_ENABLED", "false").lower() == "true":
+        raise RuntimeError("CRITICAL SECURITY ERROR: RADIO_ENCRYPTION_KEY must be configured in production.")
+
+    # In development/test environments, allow migration fallback to CONTROL_PLANE_SECRET only
+    fallback = config.CONTROL_PLANE_SECRET
+    if fallback and fallback.strip() not in config.INSECURE_SECRET_PLACEHOLDERS:
         logger.warning(
-            "RADIO_ENCRYPTION_KEY is not set. Falling back to CONTROL_PLANE_SECRET. "
+            "RADIO_ENCRYPTION_KEY is not set. Falling back to CONTROL_PLANE_SECRET for legacy key migration. "
             "Please configure a dedicated RADIO_ENCRYPTION_KEY in your .env file."
         )
         digest = hashlib.sha256(fallback.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(digest)
 
-    if os.getenv("ENVIRONMENT") == "production" or os.getenv("AUTH_ENABLED", "false").lower() == "true":
-        raise RuntimeError("RADIO_ENCRYPTION_KEY or CONTROL_PLANE_SECRET must be configured in production.")
-
-    # Development-only temporary key
-    logger.warning("No radio encryption secret configured; using temporary dev key.")
-    digest = hashlib.sha256(b"neverland-dev-insecure-key-do-not-use-in-prod").digest()
-    return base64.urlsafe_b64encode(digest)
+    raise RuntimeError(
+        "RADIO_ENCRYPTION_KEY is required for sensitive token encryption. "
+        "Please generate a key using: python cli/neverland.py config"
+    )
 
 
 def encrypt_token(raw_token: str) -> str:
@@ -64,8 +65,8 @@ def decrypt_token(encrypted_token: str) -> str:
         return f.decrypt(encrypted_token.encode("utf-8")).decode("utf-8")
     except Exception:
         # If RADIO_ENCRYPTION_KEY was recently configured, attempt fallback to legacy key
-        legacy_secret = config.CONTROL_PLANE_SECRET or config.TOKEN
-        if legacy_secret and config.RADIO_ENCRYPTION_KEY:
+        legacy_secret = config.CONTROL_PLANE_SECRET
+        if legacy_secret and legacy_secret.strip() not in config.INSECURE_SECRET_PLACEHOLDERS and config.RADIO_ENCRYPTION_KEY:
             try:
                 legacy_key = base64.urlsafe_b64encode(hashlib.sha256(legacy_secret.encode("utf-8")).digest())
                 f_legacy = Fernet(legacy_key)

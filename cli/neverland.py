@@ -463,11 +463,73 @@ def cmd_config(args):
         else:
             print(f"  {Colors.DIM}You may continue configuration, but ensure MongoDB is started before running 'neverland start'.{Colors.RESET}")
 
+    # 5. Radio & 24/7 Audio Streaming Configuration
+    print(f"\n{Colors.BOLD}--- 5. Radio & 24/7 Audio Streaming Configuration ---{Colors.RESET}")
+    print(f"{Colors.DIM}Configure broadcast bots, playlist storage quotas, and upload limits.{Colors.RESET}\n")
+
+    # Radio Bot Instances (1-3)
+    default_bots = existing.get("RADIO_BOTS_COUNT", "3")
+    while True:
+        bots_input = prompt_input("Number of Radio Bot instances (1 to 3)", default=default_bots)
+        try:
+            bots_val = int(bots_input.strip())
+            if 1 <= bots_val <= 3:
+                new_cfg["RADIO_BOTS_COUNT"] = str(bots_val)
+                break
+            print(f"  {Colors.RED}Please enter an integer between 1 and 3.{Colors.RESET}")
+        except ValueError:
+            print(f"  {Colors.RED}Invalid number. Please enter 1, 2, or 3.{Colors.RESET}")
+
+    # Maximum playlists per server
+    default_max_pl = existing.get("RADIO_MAX_PLAYLISTS_PER_GUILD", "6")
+    while True:
+        pl_input = prompt_input("Maximum playlists allowed per server", default=default_max_pl)
+        try:
+            pl_val = int(pl_input.strip())
+            if pl_val >= 1:
+                new_cfg["RADIO_MAX_PLAYLISTS_PER_GUILD"] = str(pl_val)
+                break
+            print(f"  {Colors.RED}Minimum playlists allowed is 1.{Colors.RESET}")
+        except ValueError:
+            print(f"  {Colors.RED}Invalid integer.{Colors.RESET}")
+
+    # Storage quota per playlist in MB
+    default_storage = existing.get("RADIO_MAX_PLAYLIST_STORAGE_MB", "50")
+    while True:
+        storage_input = prompt_input("Storage quota PER PLAYLIST in MB", default=default_storage)
+        try:
+            storage_val = int(storage_input.strip())
+            if storage_val >= 10:
+                new_cfg["RADIO_MAX_PLAYLIST_STORAGE_MB"] = str(storage_val)
+                break
+            print(f"  {Colors.RED}Minimum storage quota per playlist is 10 MB.{Colors.RESET}")
+        except ValueError:
+            print(f"  {Colors.RED}Invalid integer.{Colors.RESET}")
+
+    # Storage Multiplier Notice
+    total_server_mb = int(new_cfg["RADIO_MAX_PLAYLISTS_PER_GUILD"]) * int(new_cfg["RADIO_MAX_PLAYLIST_STORAGE_MB"])
+    print(f"\n  {Colors.CYAN}💡 Storage Policy Notice:{Colors.RESET}")
+    print(f"     Each playlist receives an independent quota of {Colors.BOLD}{new_cfg['RADIO_MAX_PLAYLIST_STORAGE_MB']} MB{Colors.RESET}.")
+    print(f"     {new_cfg['RADIO_MAX_PLAYLISTS_PER_GUILD']} playlists × {new_cfg['RADIO_MAX_PLAYLIST_STORAGE_MB']} MB = {Colors.BOLD}{Colors.GREEN}{total_server_mb} MB{Colors.RESET} total maximum audio storage per server.\n")
+
+    # Max single audio file upload size in MB
+    current_storage_int = int(new_cfg["RADIO_MAX_PLAYLIST_STORAGE_MB"])
+    default_upload = existing.get("RADIO_MAX_UPLOAD_SIZE_MB", str(min(25, current_storage_int)))
+    while True:
+        upload_input = prompt_input(f"Maximum single audio file upload size in MB (max {current_storage_int})", default=default_upload)
+        try:
+            upload_val = int(upload_input.strip())
+            if 1 <= upload_val <= current_storage_int:
+                new_cfg["RADIO_MAX_UPLOAD_SIZE_MB"] = str(upload_val)
+                break
+            print(f"  {Colors.RED}Upload size must be between 1 and {current_storage_int} MB.{Colors.RESET}")
+        except ValueError:
+            print(f"  {Colors.RED}Invalid integer.{Colors.RESET}")
+
     # Auto-generate or preserve cryptographic secrets
     new_cfg["CONTROL_PLANE_SECRET"] = existing.get("CONTROL_PLANE_SECRET") or secrets.token_hex(32)
     new_cfg["DASHBOARD_SESSION_SECRET"] = existing.get("DASHBOARD_SESSION_SECRET") or secrets.token_hex(32)
     new_cfg["RADIO_ENCRYPTION_KEY"] = existing.get("RADIO_ENCRYPTION_KEY") or generate_fernet_key()
-    new_cfg["RADIO_MAX_PLAYLIST_STORAGE_MB"] = existing.get("RADIO_MAX_PLAYLIST_STORAGE_MB", "100")
 
     # Save to isolated profile
     write_env_file(profile_file, new_cfg, header=f"Neverland Profile: {mode.upper()}")
@@ -943,8 +1005,8 @@ def cmd_start(args):
         print(f"{Colors.RED}Error: Cannot specify both --bot-only and --dashboard-only simultaneously.{Colors.RESET}")
         sys.exit(1)
 
-    # 1. Automatic Update from GitHub Repository
-    if not getattr(args, "no_update", False):
+    # 1. Automatic Update from GitHub Repository (Opt-in via --update or NEVERLAND_AUTO_UPDATE=true)
+    if getattr(args, "update", False) or os.getenv("NEVERLAND_AUTO_UPDATE", "false").lower() == "true":
         update_from_github(verbose=True)
 
     # 2. Verify / Auto-Install FFmpeg (skips if already present)
@@ -1586,6 +1648,7 @@ def main():
     p_start.add_argument("-d", "--daemon", action="store_true", help="Run processes in background daemon mode")
     p_start.add_argument("--bot-only", action="store_true", help="Start only the Discord Bot")
     p_start.add_argument("--dashboard-only", action="store_true", help="Start only the Web Dashboard")
+    p_start.add_argument("--update", action="store_true", help="Check for and pull updates before starting (or use 'neverland update')")
     p_start.add_argument("--no-update", action="store_true", help="Skip checking for GitHub updates before starting")
     p_start.add_argument("--skip-ffmpeg", action="store_true", help="Skip checking/installing FFmpeg before starting")
     p_start.set_defaults(func=cmd_start)

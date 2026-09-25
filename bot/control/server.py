@@ -15,7 +15,7 @@ import uuid
 from core import config, database
 from bot.modules.custom_commands.engine import build_dropdown_view_from_data
 from bot.modules.custom_commands.workflow import build_embed
-from bot.modules.moderation.helpers import validate_regex_pattern
+from bot.modules.moderation.helpers import validate_regex_pattern, safe_regex_search
 from bot.control.radio_handlers import (
     radio_config_get_handler,
     radio_config_put_handler,
@@ -90,21 +90,23 @@ async def auth_middleware(request: web.Request, handler):
         or not secret
         or not hmac.compare_digest(secret, config.CONTROL_PLANE_SECRET)
     ):
-        return web.json_response({"error": "unauthorized"}, status=403)
+        return web.json_response({"error": "unauthorized"}, status=401)
 
     return await handler(request)
 
 
 async def health_handler(request: web.Request) -> web.Response:
     db_ok = await check_db()
-    return web.json_response({"status": "ok", "db": db_ok, "version": "0.1.0"})
+    return web.json_response({"status": "ok" if db_ok else "degraded"})
 
 
 _admin_cache: dict[tuple[int, int], tuple[bool, float]] = {}
 
 
 async def _check_guild_admin(guild, user_id: int) -> bool:
-    """Returns True if the user is the server owner, bot owner/admin, or has Administrator/Manage Guild in the guild."""
+    """Returns True if user is server owner, bot owner/admin, or has Administrator in the guild.
+    MANAGE_GUILD is intentionally excluded to maintain consistency with dashboard authorization.
+    """
     if not guild or not user_id:
         return False
     if str(getattr(guild, "owner_id", "")) == str(user_id):
@@ -139,13 +141,63 @@ async def _check_guild_admin(guild, user_id: int) -> bool:
 
     result = False
     if member is not None:
-        result = bool(
-            member.guild_permissions.administrator
-            or member.guild_permissions.manage_guild
-        )
+        result = bool(member.guild_permissions.administrator)
 
+    # Prevent unbounded cache growth (L-8)
+    if len(_admin_cache) > 2048:
+        _admin_cache.clear()
     _admin_cache[cache_key] = (result, now + 15.0)
     return result
+
+
+@web.middleware
+async def guild_admin_middleware(request: web.Request, handler):
+    """Enforces server administrator authorization internally for mutating guild endpoints (H-3/M-2)."""
+    # Only protect mutating endpoints that modify guild state
+    if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
+        return await handler(request)
+
+    # Check if route is guild-scoped
+    guild_id_raw = request.match_info.get("guild_id") or request.match_info.get("id")
+    if not guild_id_raw:
+        path_parts = request.path.strip("/").split("/")
+        if len(path_parts) >= 2 and path_parts[0] == "guilds" and path_parts[1].isdigit():
+            guild_id_raw = path_parts[1]
+
+    if not guild_id_raw or not str(guild_id_raw).isdigit():
+        return await handler(request)
+
+    user_id_raw = request.headers.get("X-User-Id") or request.query.get("user_id")
+    if not user_id_raw or not str(user_id_raw).strip().isdigit():
+        return web.json_response(
+            {"error": "unauthorized", "details": "Valid X-User-Id header required for mutating guild operations"},
+            status=401,
+        )
+
+    user_id = int(str(user_id_raw).strip())
+    bot = request.app.get("bot")
+    if bot is None:
+        return web.json_response({"error": "bot_unavailable"}, status=503)
+
+    guild_id = int(guild_id_raw)
+    guild = bot.get_guild(guild_id)
+    if guild is None:
+        try:
+            guild = await bot.fetch_guild(guild_id)
+        except Exception:
+            guild = None
+
+    if guild is None:
+        return web.json_response({"error": "guild_not_found"}, status=404)
+
+    is_admin = await _check_guild_admin(guild, user_id)
+    if not is_admin:
+        return web.json_response(
+            {"error": "forbidden", "details": "Administrator permissions required for this guild operation"},
+            status=403,
+        )
+
+    return await handler(request)
 
 
 async def guilds_list_handler(request: web.Request) -> web.Response:
@@ -1687,20 +1739,43 @@ async def giveaways_reroll_handler(request: web.Request) -> web.Response:
         user_weights = doc.get("UserWeights") or {}
         weights = [float(user_weights.get(str(u), 1.0)) for u in entrants]
         new_winners = weighted_sample_without_replacement(entrants, weights, count)
+        winner_ids = [str(w) for w in new_winners]
+        winner_mentions = [f"<@{w}>" for w in new_winners]
+        title = doc.get("Title") or doc.get("title") or "Giveaway"
 
-        # Notify in channel
+        # Persist new winners to database (Q2)
+        if database.db is not None:
+            await database.db.giveaways.update_one(
+                {"message_id": str(message_id)},
+                {
+                    "$set": {
+                        "Winners": winner_ids,
+                        "winners": winner_ids,
+                        "rerolled_at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
+            )
+
+        # Notify in channel & update original message embed if reachable (Q2)
         bot = request.app.get("bot")
         channel_id = doc.get("channel_id")
         if channel_id:
             channel = guild.get_channel(int(channel_id))
             if channel and isinstance(channel, discord.TextChannel):
-                winner_mentions = [f"<@{w}>" for w in new_winners]
-                title = doc.get("Title") or doc.get("title") or "Giveaway"
                 await channel.send(
                     f"🎊 **Dashboard Reroll:** Congratulations {' '.join(winner_mentions)}! You won the **{title}**! 🎊"
                 )
+                try:
+                    orig_msg = await channel.fetch_message(int(message_id))
+                    if orig_msg and orig_msg.embeds:
+                        embed = orig_msg.embeds[0]
+                        embed.description = f"**Giveaway Ended (Rerolled)**\nWinners: {' '.join(winner_mentions)}"
+                        embed.color = discord.Color.gold()
+                        await orig_msg.edit(embed=embed)
+                except Exception:
+                    pass
 
-        return web.json_response({"status": "ok", "winners": [str(w) for w in new_winners]})
+        return web.json_response({"status": "ok", "winners": winner_ids})
     except Exception as e:
         logger.exception("Error in giveaways_reroll_handler: %s", e)
         return web.json_response({"error": "Failed to reroll giveaway winners"}, status=500)
@@ -2132,11 +2207,24 @@ async def moderation_regex_test_handler(request: web.Request) -> web.Response:
         pattern = str(data.get("pattern", "")).strip()
         test_string = str(data.get("test_string", ""))
 
+        if len(test_string) > 2000:
+            return web.json_response(
+                {"valid": False, "error": "Test string exceeds maximum allowed length of 2000 characters."},
+                status=400,
+            )
+
         valid, error = validate_regex_pattern(pattern)
         if not valid:
             return web.json_response({"valid": False, "error": error})
 
-        match = re.search(pattern, test_string, re.IGNORECASE)
+        try:
+            match = await safe_regex_search(pattern, test_string, timeout=0.05)
+        except asyncio.TimeoutError:
+            return web.json_response(
+                {"valid": False, "error": "Regex execution timed out (>50ms). Pattern rejected due to ReDoS risk."},
+                status=400,
+            )
+
         return web.json_response({
             "valid": True,
             "matches": bool(match),
@@ -2263,8 +2351,12 @@ async def bot_presence_put_handler(request: web.Request) -> web.Response:
 
 
 def create_app(bot) -> web.Application:
-    # Allow audio uploads up to 500MB without aiohttp cutting stream at default 1MB
-    app = web.Application(middlewares=[auth_middleware], client_max_size=500 * 1024 * 1024)
+    # Allow audio uploads up to 2x upload quota (minimum 30MB) without memory bloat (M-6)
+    max_mb = max(30, getattr(config, "RADIO_MAX_UPLOAD_SIZE_MB", 25) * 2)
+    app = web.Application(
+        middlewares=[auth_middleware, guild_admin_middleware],
+        client_max_size=max_mb * 1024 * 1024,
+    )
     app["bot"] = bot
     app.router.add_get("/health", health_handler)
     app.router.add_get("/guilds", guilds_list_handler)

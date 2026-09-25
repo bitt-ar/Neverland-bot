@@ -3,6 +3,7 @@ import datetime
 import io
 import logging
 import random
+import secrets
 import time as pyTime
 from typing import Optional
 
@@ -15,6 +16,8 @@ from pymongo import ReturnDocument
 from core import database
 
 logger = logging.getLogger(__name__)
+
+_rng = secrets.SystemRandom()
 
 
 def weighted_sample_without_replacement(items, weights, count):
@@ -37,7 +40,7 @@ def weighted_sample_without_replacement(items, weights, count):
             w = 1.0
         if w <= 0:
             w = 1.0
-        keyed.append((random.random() ** (1.0 / w), item))
+        keyed.append((_rng.random() ** (1.0 / w), item))
 
     keyed.sort(key=lambda pair: pair[0], reverse=True)
 
@@ -93,7 +96,7 @@ async def select_giveaway_winners(
     for _ in range(actual_count):
         if not pool_copy:
             break
-        chosen = random.choice(pool_copy)
+        chosen = _rng.choice(pool_copy)
         winners.append(chosen)
         pool_copy = [u for u in pool_copy if u != chosen]
 

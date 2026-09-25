@@ -82,6 +82,9 @@ interface GuildChannel {
 
 interface RadioConfig {
   max_playlist_storage_mb: number;
+  max_playlists_per_guild: number;
+  max_upload_size_mb: number;
+  radio_bots_count: number;
   default_volume: number;
 }
 
@@ -100,7 +103,13 @@ export function RadioClient({ guildId }: { guildId: string }) {
   const [bots, setBots] = useState<RadioBot[]>([]);
   const [playlists, setPlaylists] = useState<RadioPlaylist[]>([]);
   const [voiceChannels, setVoiceChannels] = useState<GuildChannel[]>([]);
-  const [config, setConfig] = useState<RadioConfig>({ max_playlist_storage_mb: 100, default_volume: 100 });
+  const [config, setConfig] = useState<RadioConfig>({
+    max_playlist_storage_mb: 50,
+    max_playlists_per_guild: 6,
+    max_upload_size_mb: 25,
+    radio_bots_count: 3,
+    default_volume: 100,
+  });
 
   // Dispatcher form state
   const [selectedBotSlot, setSelectedBotSlot] = useState<number>(0);
@@ -343,6 +352,17 @@ export function RadioClient({ guildId }: { guildId: string }) {
     if (!files || files.length === 0 || !activePlaylistId) return;
 
     const file = files[0];
+    const maxUploadBytes = (config.max_upload_size_mb || 25) * 1024 * 1024;
+    if (file.size > maxUploadBytes) {
+      toast.error(
+        `File "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds maximum allowed upload size of ${config.max_upload_size_mb || 25} MB.`
+      );
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
 
@@ -499,10 +519,10 @@ export function RadioClient({ guildId }: { guildId: string }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {bots.filter((b) => b.is_configured).length} / 3
+              {bots.filter((b) => b.is_configured).length} / {config.radio_bots_count || 3}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              1 Primary + {bots.filter((b) => b.slot > 0 && b.is_configured).length} Auxiliary
+              1 Primary + {Math.max(0, (config.radio_bots_count || 3) - 1)} Auxiliary Slots
             </p>
           </CardContent>
         </Card>
@@ -513,8 +533,10 @@ export function RadioClient({ guildId }: { guildId: string }) {
             <Layers className="h-4 w-4 text-emerald-500/80" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{playlists.length} / 3</div>
-            <p className="text-xs text-muted-foreground mt-1">Maximum 3 allowed</p>
+            <div className="text-2xl font-bold">
+              {playlists.length} / {config.max_playlists_per_guild || 6}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Maximum {config.max_playlists_per_guild || 6} allowed</p>
           </CardContent>
         </Card>
 
@@ -525,7 +547,9 @@ export function RadioClient({ guildId }: { guildId: string }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{config.max_playlist_storage_mb} MB</div>
-            <p className="text-xs text-muted-foreground mt-1">Per playlist limit</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Per playlist (Total: {(config.max_playlists_per_guild || 6) * config.max_playlist_storage_mb} MB)
+            </p>
           </CardContent>
         </Card>
 
@@ -589,7 +613,15 @@ export function RadioClient({ guildId }: { guildId: string }) {
                 {/* 1. Bot Selector */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">1. Select Broadcast Bot</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div
+                    className={`grid grid-cols-1 ${
+                      (config.radio_bots_count || 3) === 1
+                        ? "sm:grid-cols-1 max-w-sm"
+                        : (config.radio_bots_count || 3) === 2
+                        ? "sm:grid-cols-2"
+                        : "sm:grid-cols-3"
+                    } gap-3`}
+                  >
                     {bots.map((b) => {
                       const isSelected = selectedBotSlot === b.slot;
                       return (
@@ -787,12 +819,17 @@ export function RadioClient({ guildId }: { guildId: string }) {
         <TabsContent value="playlists" className="space-y-6">
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
             <div>
-              <h2 className="text-lg font-semibold">Playlists Management</h2>
-              <p className="text-xs text-muted-foreground">
-                Create up to 3 playlists and upload audio files (MP3, OGG, WAV, FLAC).
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold">Playlists Management</h2>
+                <Badge variant="outline" className="text-xs">
+                  {playlists.length} / {config.max_playlists_per_guild || 6}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Manage playlists, upload audio tracks (MP3, OGG, WAV, FLAC), and organize music.
               </p>
             </div>
-            {playlists.length < 3 && (
+            {playlists.length < (config.max_playlists_per_guild || 6) ? (
               <div className="flex gap-2">
                 <Input
                   placeholder="Playlist Name"
@@ -810,7 +847,24 @@ export function RadioClient({ guildId }: { guildId: string }) {
                   Create
                 </Button>
               </div>
+            ) : (
+              <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-400 py-1.5 px-3 text-xs">
+                Playlist Quota Reached ({playlists.length}/{config.max_playlists_per_guild || 6})
+              </Badge>
             )}
+          </div>
+
+          {/* Quota Formula Notice */}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-primary shrink-0" />
+              <span>
+                <strong>Storage Policy:</strong> {config.max_playlist_storage_mb} MB quota applies to <strong>each</strong> playlist independently.
+              </span>
+            </div>
+            <div className="text-muted-foreground font-mono">
+              Server Total: {config.max_playlists_per_guild || 6} playlists × {config.max_playlist_storage_mb} MB = {(config.max_playlists_per_guild || 6) * config.max_playlist_storage_mb} MB potential storage
+            </div>
           </div>
 
           {/* Playlists Tabs / Selector */}
@@ -824,7 +878,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
             </Card>
           ) : (
             <div className="space-y-6">
-              <div className="flex gap-2 border-b pb-2 overflow-x-auto">
+              <div className="flex gap-2 border-b pb-2 overflow-x-auto flex-nowrap scrollbar-none py-1">
                 {playlists.map((pl) => (
                   <Button
                     key={pl.id}
@@ -834,14 +888,14 @@ export function RadioClient({ guildId }: { guildId: string }) {
                       setActivePlaylistId(pl.id);
                       loadPlaylistTracks(pl.id);
                     }}
-                    className={`gap-2 font-medium transition-all ${
+                    className={`gap-2 font-medium shrink-0 transition-all ${
                       activePlaylistId === pl.id
                         ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     <Music className={`h-4 w-4 ${activePlaylistId === pl.id ? "text-emerald-400" : "text-muted-foreground"}`} />
-                    {pl.name}
+                    <span className="truncate max-w-[150px]">{pl.name}</span>
                     <Badge
                       variant="outline"
                       className={`text-[10px] ml-1 ${
@@ -894,7 +948,7 @@ export function RadioClient({ guildId }: { guildId: string }) {
                             className="gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-medium shadow-xs"
                           >
                             <Upload className="h-4 w-4" />
-                            {uploading ? "Uploading..." : "Upload Audio"}
+                            {uploading ? "Uploading..." : `Upload Audio (Max ${config.max_upload_size_mb || 25} MB)`}
                           </Button>
                           <Button
                             variant="outline"
@@ -991,188 +1045,218 @@ export function RadioClient({ guildId }: { guildId: string }) {
             <div className="text-xs space-y-1">
               <p className="font-semibold text-foreground">Multi-Bot Voice Architecture</p>
               <p className="text-muted-foreground">
-                Discord limits a single bot account to 1 voice connection per server. By providing tokens for
-                Auxiliary Bot 1 and Auxiliary Bot 2, Neverland can simultaneously stream in up to 3 separate
-                channels in this server. Tokens are securely encrypted using AES-256 at rest.
+                Discord limits a single bot account to 1 voice connection per server. Currently,{" "}
+                <strong>{config.radio_bots_count || 3} bot {config.radio_bots_count === 1 ? "instance" : "instances"}</strong>{" "}
+                are enabled in your environment. Tokens are securely encrypted using AES-256 at rest.
+                {(config.radio_bots_count || 3) < 3 && (
+                  <span> To change the number of active bots (1 to 3), run <code className="bg-background px-1 rounded font-mono">neverland config</code>.</span>
+                )}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Slot 1: Aux Bot 1 */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-5 w-5 text-primary" />
-                    <CardTitle className="text-base">Auxiliary Bot 1</CardTitle>
+          {(config.radio_bots_count || 3) === 1 ? (
+            <Card className="p-8 text-center bg-card/30">
+              <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-3 opacity-40" />
+              <h3 className="text-base font-semibold">Single Bot Mode Enabled</h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                Auxiliary bots are disabled under current configuration (RADIO_BOTS_COUNT=1).
+                The primary bot manages all voice streaming for one channel at a time.
+                To activate auxiliary bots for multiple concurrent channels, update your configuration with <code className="font-mono bg-muted px-1.5 py-0.5 rounded">neverland config</code>.
+              </p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Slot 1: Aux Bot 1 */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-5 w-5 text-primary" />
+                      <CardTitle className="text-base">Auxiliary Bot 1</CardTitle>
+                    </div>
+                    {bots.find((b) => b.slot === 1)?.is_configured ? (
+                      <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
+                        Configured
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">
+                        Not Configured
+                      </Badge>
+                    )}
                   </div>
+                  <CardDescription>Second bot instance for simultaneous voice streaming.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {bots.find((b) => b.slot === 1)?.is_configured && (
+                    <div className="rounded-lg border p-3 bg-muted/20 text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Bot Username:</span>
+                        <span className="font-semibold">{bots.find((b) => b.slot === 1)?.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Masked Token:</span>
+                        <span className="font-mono">{bots.find((b) => b.slot === 1)?.masked_token}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Discord Bot Token</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter bot token..."
+                      value={aux1Token}
+                      onChange={(e) => setAux1Token(e.target.value)}
+                      className="text-xs font-mono"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Get token from Discord Developer Portal &gt; Applications &gt; Bot &gt; Reset Token.
+                    </p>
+                  </div>
+
+                  {inviteUrls[1] && (
+                    <div className="p-2.5 rounded bg-primary/10 border border-primary/20 flex justify-between items-center text-xs">
+                      <span>Invite this bot to your server:</span>
+                      <a
+                        href={inviteUrls[1]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary font-semibold hover:underline inline-flex items-center gap-1"
+                      >
+                        Invite Bot <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
+                </CardContent>
+                <CardFooter className="flex justify-between border-t pt-4">
                   {bots.find((b) => b.slot === 1)?.is_configured ? (
-                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
-                      Configured
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-xs">
-                      Not Configured
-                    </Badge>
-                  )}
-                </div>
-                <CardDescription>Second bot instance for simultaneous voice streaming.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {bots.find((b) => b.slot === 1)?.is_configured && (
-                  <div className="rounded-lg border p-3 bg-muted/20 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Bot Username:</span>
-                      <span className="font-semibold">{bots.find((b) => b.slot === 1)?.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Masked Token:</span>
-                      <span className="font-mono">{bots.find((b) => b.slot === 1)?.masked_token}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Discord Bot Token</Label>
-                  <Input
-                    type="password"
-                    placeholder="Enter bot token..."
-                    value={aux1Token}
-                    onChange={(e) => setAux1Token(e.target.value)}
-                    className="text-xs font-mono"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Get token from Discord Developer Portal &gt; Applications &gt; Bot &gt; Reset Token.
-                  </p>
-                </div>
-
-                {inviteUrls[1] && (
-                  <div className="p-2.5 rounded bg-primary/10 border border-primary/20 flex justify-between items-center text-xs">
-                    <span>Invite this bot to your server:</span>
-                    <a
-                      href={inviteUrls[1]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary font-semibold hover:underline inline-flex items-center gap-1"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteAuxBot(1)}
+                      className="text-destructive hover:bg-destructive/10 text-xs"
                     >
-                      Invite Bot <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="flex justify-between border-t pt-4">
-                {bots.find((b) => b.slot === 1)?.is_configured ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteAuxBot(1)}
-                    className="text-destructive hover:bg-destructive/10 text-xs"
-                  >
-                    Remove Bot
-                  </Button>
-                ) : (
-                  <div />
-                )}
-                <Button
-                  size="sm"
-                  onClick={() => handleSaveAuxBot(1)}
-                  disabled={savingAux1 || !aux1Token.trim()}
-                  className="gap-2 text-xs"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {savingAux1 ? "Connecting..." : "Save & Verify"}
-                </Button>
-              </CardFooter>
-            </Card>
-
-            {/* Slot 2: Aux Bot 2 */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-5 w-5 text-primary" />
-                    <CardTitle className="text-base">Auxiliary Bot 2</CardTitle>
-                  </div>
-                  {bots.find((b) => b.slot === 2)?.is_configured ? (
-                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
-                      Configured
-                    </Badge>
+                      Remove Bot
+                    </Button>
                   ) : (
-                    <Badge variant="outline" className="text-xs">
-                      Not Configured
-                    </Badge>
+                    <div />
                   )}
-                </div>
-                <CardDescription>Third bot instance for simultaneous voice streaming.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {bots.find((b) => b.slot === 2)?.is_configured && (
-                  <div className="rounded-lg border p-3 bg-muted/20 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Bot Username:</span>
-                      <span className="font-semibold">{bots.find((b) => b.slot === 2)?.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Masked Token:</span>
-                      <span className="font-mono">{bots.find((b) => b.slot === 2)?.masked_token}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Discord Bot Token</Label>
-                  <Input
-                    type="password"
-                    placeholder="Enter bot token..."
-                    value={aux2Token}
-                    onChange={(e) => setAux2Token(e.target.value)}
-                    className="text-xs font-mono"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Get token from Discord Developer Portal &gt; Applications &gt; Bot &gt; Reset Token.
-                  </p>
-                </div>
-
-                {inviteUrls[2] && (
-                  <div className="p-2.5 rounded bg-primary/10 border border-primary/20 flex justify-between items-center text-xs">
-                    <span>Invite this bot to your server:</span>
-                    <a
-                      href={inviteUrls[2]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary font-semibold hover:underline inline-flex items-center gap-1"
-                    >
-                      Invite Bot <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="flex justify-between border-t pt-4">
-                {bots.find((b) => b.slot === 2)?.is_configured ? (
                   <Button
-                    variant="ghost"
                     size="sm"
-                    onClick={() => handleDeleteAuxBot(2)}
-                    className="text-destructive hover:bg-destructive/10 text-xs"
+                    onClick={() => handleSaveAuxBot(1)}
+                    disabled={savingAux1 || !aux1Token.trim()}
+                    className="gap-2 text-xs"
                   >
-                    Remove Bot
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {savingAux1 ? "Connecting..." : "Save & Verify"}
                   </Button>
-                ) : (
-                  <div />
-                )}
-                <Button
-                  size="sm"
-                  onClick={() => handleSaveAuxBot(2)}
-                  disabled={savingAux2 || !aux2Token.trim()}
-                  className="gap-2 text-xs"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {savingAux2 ? "Connecting..." : "Save & Verify"}
-                </Button>
-              </CardFooter>
-            </Card>
-          </div>
+                </CardFooter>
+              </Card>
+
+              {/* Slot 2: Aux Bot 2 (if radio_bots_count >= 3) */}
+              {(config.radio_bots_count || 3) >= 3 ? (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-5 w-5 text-primary" />
+                        <CardTitle className="text-base">Auxiliary Bot 2</CardTitle>
+                      </div>
+                      {bots.find((b) => b.slot === 2)?.is_configured ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
+                          Configured
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          Not Configured
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription>Third bot instance for simultaneous voice streaming.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {bots.find((b) => b.slot === 2)?.is_configured && (
+                      <div className="rounded-lg border p-3 bg-muted/20 text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Bot Username:</span>
+                          <span className="font-semibold">{bots.find((b) => b.slot === 2)?.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Masked Token:</span>
+                          <span className="font-mono">{bots.find((b) => b.slot === 2)?.masked_token}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Discord Bot Token</Label>
+                      <Input
+                        type="password"
+                        placeholder="Enter bot token..."
+                        value={aux2Token}
+                        onChange={(e) => setAux2Token(e.target.value)}
+                        className="text-xs font-mono"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Get token from Discord Developer Portal &gt; Applications &gt; Bot &gt; Reset Token.
+                      </p>
+                    </div>
+
+                    {inviteUrls[2] && (
+                      <div className="p-2.5 rounded bg-primary/10 border border-primary/20 flex justify-between items-center text-xs">
+                        <span>Invite this bot to your server:</span>
+                        <a
+                          href={inviteUrls[2]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary font-semibold hover:underline inline-flex items-center gap-1"
+                        >
+                          Invite Bot <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter className="flex justify-between border-t pt-4">
+                    {bots.find((b) => b.slot === 2)?.is_configured ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteAuxBot(2)}
+                        className="text-destructive hover:bg-destructive/10 text-xs"
+                      >
+                        Remove Bot
+                      </Button>
+                    ) : (
+                      <div />
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={() => handleSaveAuxBot(2)}
+                      disabled={savingAux2 || !aux2Token.trim()}
+                      className="gap-2 text-xs"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {savingAux2 ? "Connecting..." : "Save & Verify"}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ) : (
+                <Card className="opacity-60 border-dashed">
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-5 w-5 text-muted-foreground" />
+                      <CardTitle className="text-base text-muted-foreground">Auxiliary Bot 2 (Slot 2)</CardTitle>
+                    </div>
+                    <CardDescription>Slot disabled under current configuration (RADIO_BOTS_COUNT=2).</CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-xs text-muted-foreground">
+                    To enable a 3rd concurrent voice stream, set Radio Bots to 3 in <code className="font-mono bg-muted px-1.5 py-0.5 rounded">neverland config</code>.
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         {/* TAB 4: RADIO SETTINGS */}
@@ -1209,11 +1293,18 @@ export function RadioClient({ guildId }: { guildId: string }) {
               <div className="space-y-2 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground">Specifications & Active Constraints:</p>
                 <ul className="list-disc list-inside space-y-1.5 pl-1">
-                  <li>Maximum 3 playlists per Discord server.</li>
-                  <li>Hard limit of {config.max_playlist_storage_mb} MB per playlist (validated at backend and database layers).</li>
-                  <li>Allowed audio formats: MP3, OGG, WAV, FLAC.</li>
-                  <li>Magic bytes binary validation is enforced on all uploads.</li>
-                  <li>Concurrent streaming capacity: Up to 3 separate voice channels simultaneously (Main + 2 Aux).</li>
+                  <li>Maximum <strong>{config.max_playlists_per_guild || 6} playlists</strong> allowed per Discord server.</li>
+                  <li>Storage quota: <strong>{config.max_playlist_storage_mb} MB</strong> per playlist (validated at backend and database layers).</li>
+                  <li>
+                    Server total capacity: {config.max_playlists_per_guild || 6} playlists × {config.max_playlist_storage_mb} MB ={" "}
+                    <strong className="text-primary font-mono">{(config.max_playlists_per_guild || 6) * config.max_playlist_storage_mb} MB</strong> maximum audio storage.
+                  </li>
+                  <li>Single audio track upload limit: <strong>{config.max_upload_size_mb || 25} MB</strong>.</li>
+                  <li>Allowed audio formats: MP3, OGG, WAV, FLAC (magic bytes binary validation enforced).</li>
+                  <li>
+                    Concurrent streaming capacity: Up to {config.radio_bots_count || 3} separate voice channels simultaneously{" "}
+                    ({(config.radio_bots_count || 3) === 1 ? "Main Bot only" : (config.radio_bots_count || 3) === 2 ? "Main + 1 Aux Bot" : "Main + 2 Aux Bots"}).
+                  </li>
                 </ul>
               </div>
             </CardContent>

@@ -224,25 +224,31 @@ async def sync_radio_storage_quota(owner_max_mb: int):
 async def get_radio_config(guild_id: int | str) -> dict:
     gid_str = str(guild_id)
     doc = await db.radio_configs.find_one({"guild_id": gid_str})
-    owner_limit = getattr(config, "RADIO_MAX_PLAYLIST_STORAGE_MB", 100)
-    if not doc:
-        return {
-            "guild_id": gid_str,
-            "max_playlist_storage_mb": owner_limit,
-            "default_volume": 100,
-            "owner_enforced": True,
-        }
-    doc.pop("_id", None)
-    # Enforce owner-configured limit from .env
-    doc["max_playlist_storage_mb"] = owner_limit
-    doc["owner_enforced"] = True
-    return doc
+    owner_limit = getattr(config, "RADIO_MAX_PLAYLIST_STORAGE_MB", 50)
+    max_playlists = getattr(config, "RADIO_MAX_PLAYLISTS_PER_GUILD", 6)
+    max_upload = getattr(config, "RADIO_MAX_UPLOAD_SIZE_MB", 25)
+    bots_count = getattr(config, "RADIO_BOTS_COUNT", 3)
+    res = {
+        "guild_id": gid_str,
+        "max_playlist_storage_mb": owner_limit,
+        "max_playlists_per_guild": max_playlists,
+        "max_upload_size_mb": max_upload,
+        "radio_bots_count": bots_count,
+        "default_volume": 100,
+        "owner_enforced": True,
+    }
+    if doc:
+        res["default_volume"] = doc.get("default_volume", 100)
+    return res
 
 
 async def update_radio_config(guild_id: int | str, **fields) -> dict:
     gid_str = str(guild_id)
-    # Never allow server admins to overwrite bot owner's system storage quota
+    # Never allow server admins to overwrite bot owner's system storage quota or global limits
     fields.pop("max_playlist_storage_mb", None)
+    fields.pop("max_playlists_per_guild", None)
+    fields.pop("max_upload_size_mb", None)
+    fields.pop("radio_bots_count", None)
     if fields:
         await db.radio_configs.update_one(
             {"guild_id": gid_str},

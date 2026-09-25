@@ -76,8 +76,65 @@ def contains_bad_word(content: str, bad_words: list[str]) -> tuple[bool, Optiona
     return False, None
 
 
+import asyncio
+import concurrent.futures
+
+_regex_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="safe_regex")
+
+# Patterns that previously timed out are skipped process-wide: config caches are
+# deep copies, so disabling the rule dict alone would not survive the next
+# get_config() call.
+_disabled_patterns: set = set()
+
+# The stdlib `re` engine holds the GIL for the entire backtracking pass, so a
+# catastrophic pattern freezes the WHOLE process (thread executors and
+# asyncio.wait_for/asyncio.wait cannot preempt a running C-level search). The
+# third-party `regex` engine resolves the classic ReDoS patterns in
+# microseconds and accepts a hard engine-level `timeout`, so it is the only
+# safe engine for admin-supplied patterns.
+try:
+    import regex as _regex_engine
+except ImportError:  # pragma: no cover - regex ships with the requirements
+    _regex_engine = None
+
+
+async def safe_regex_search(pattern: str, content: str, timeout: float = 0.05) -> Optional[re.Match]:
+    """Execute a regex search without ever stalling the bot.
+
+    Runs off the event loop AND uses the `regex` engine's built-in timeout so a
+    catastrophic-backtracking pattern aborts inside the engine itself instead
+    of starving the GIL. Raises asyncio.TimeoutError when the budget is hit.
+    """
+    if _regex_engine is not None:
+        def _search() -> Optional[re.Match]:
+            try:
+                return _regex_engine.search(pattern, content, _regex_engine.IGNORECASE, timeout=timeout)
+            except TimeoutError:
+                raise asyncio.TimeoutError(f"regex execution exceeded {timeout}s (ReDoS risk)")
+            except _regex_engine.error:
+                return None
+
+        fut = asyncio.ensure_future(
+            asyncio.get_running_loop().run_in_executor(_regex_executor, _search)
+        )
+        done, _pending = await asyncio.wait({fut}, timeout=timeout * 4)
+        if not done:
+            raise asyncio.TimeoutError(f"regex execution exceeded {timeout}s (ReDoS risk)")
+        return fut.result()
+
+    # Fallback (regex module unavailable): keep the old behavior — event loop is
+    # not awaited past natural completion, but the engine-level cap is lost.
+    loop = asyncio.get_running_loop()
+    compiled = re.compile(pattern, re.IGNORECASE)
+    fut = loop.run_in_executor(_regex_executor, compiled.search, content)
+    done, _pending = await asyncio.wait({fut}, timeout=timeout)
+    if not done:
+        raise asyncio.TimeoutError(f"regex execution exceeded {timeout}s (ReDoS risk)")
+    return fut.result()
+
+
 def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
-    """Validates regex pattern syntax and checks safety against catastrophic backtracking."""
+    """Validates regex pattern syntax and checks safety against catastrophic backtracking (ReDoS)."""
     if not pattern or not isinstance(pattern, str):
         return False, "Pattern cannot be empty."
 
@@ -85,23 +142,31 @@ def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
     if len(cleaned) > 250:
         return False, "Pattern exceeds maximum allowed length (250 characters)."
 
+    # Static inspection 1: nested quantifiers (e.g., (a+)+, (.*)*, ([0-9]+)+)
+    if re.search(r"\([^)]*[\+\*\{][^)]*\)[\+\*\{]", cleaned):
+        return False, "Pattern rejected: nested quantifiers detected (vulnerable to ReDoS backtracking)."
+
+    # Static inspection 2: repeated alternations (e.g., (a|aa)+, (x|y+)+)
+    if re.search(r"\([^)]*\|[^)]*\)[\+\*\{]", cleaned):
+        return False, "Pattern rejected: repeated alternation detected (vulnerable to ReDoS backtracking)."
+
     try:
         compiled = re.compile(cleaned, re.IGNORECASE)
     except re.error as e:
         return False, f"Invalid regex syntax: {e}"
 
-    # Basic ReDoS safety check: test against a moderate test string
-    test_str = "a" * 50 + " " + "b" * 50
+    # Basic quick sanity search on short sample
     try:
-        compiled.search(test_str)
+        compiled.search("sample text 123")
     except Exception as e:
         return False, f"Pattern execution error: {e}"
 
     return True, ""
 
 
-def check_regex_violations(content: str, rules: list[dict]) -> tuple[bool, Optional[dict], Optional[str]]:
-    """Evaluates message content against a list of custom regex rules.
+async def check_regex_violations(content: str, rules: list[dict]) -> tuple[bool, Optional[dict], Optional[str]]:
+    """Evaluates message content against a list of custom regex rules asynchronously with timeout.
+    If a rule times out (ReDoS attempt), it is automatically disabled to prevent DoS.
     Returns (has_violation, matched_rule, matched_snippet).
     """
     if not content or not rules:
@@ -117,15 +182,29 @@ def check_regex_violations(content: str, rules: list[dict]) -> tuple[bool, Optio
         if not pattern_str or not isinstance(pattern_str, str):
             continue
 
+        if pattern_str in _disabled_patterns:
+            rule["enabled"] = False
+            continue
+
         valid, _ = validate_regex_pattern(pattern_str)
         if not valid:
+            rule["enabled"] = False
             continue
 
         try:
-            match = re.search(pattern_str, content, re.IGNORECASE)
+            match = await safe_regex_search(pattern_str, content, timeout=0.05)
             if match:
                 matched_snippet = match.group(0)
                 return True, rule, matched_snippet
+        except asyncio.TimeoutError:
+            _disabled_patterns.add(pattern_str)
+            rule["enabled"] = False
+            logger.error(
+                "ReDoS detected: regex rule '%s' (pattern: %s) exceeded 50ms. "
+                "Rule disabled process-wide for the lifetime of this bot run.",
+                rule.get("name"),
+                pattern_str,
+            )
         except Exception as e:
             logger.warning("Error evaluating regex rule '%s': %s", rule.get("name"), e)
 

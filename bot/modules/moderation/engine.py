@@ -199,7 +199,7 @@ class AutoModEngineCog(commands.Cog):
         # =====================================================================
         custom_regex_rules = cfg.get("custom_regex_patterns") or []
         if custom_regex_rules and isinstance(custom_regex_rules, list):
-            has_violation, matched_rule, match_snippet = check_regex_violations(content, custom_regex_rules)
+            has_violation, matched_rule, match_snippet = await check_regex_violations(content, custom_regex_rules)
             if has_violation and matched_rule:
                 rule_name = matched_rule.get("name") or "Custom Regex Rule"
                 action = matched_rule.get("action", "delete").lower()

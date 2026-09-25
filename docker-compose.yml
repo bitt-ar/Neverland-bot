@@ -7,6 +7,12 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD must be configured in environment}
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   bot:
     build:
@@ -20,7 +26,8 @@ services:
       # so the control plane must bind to all interfaces inside its container.
       - CONTROL_PLANE_HOST=0.0.0.0
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
 
   dashboard:
     build:

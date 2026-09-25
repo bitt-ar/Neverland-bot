@@ -106,14 +106,23 @@ def load_background_image(background_ref: str | None) -> Image.Image:
     arbitrary URLs stored in the database would turn the bot into an SSRF client.
     """
     if background_ref:
-        # Check if local path
-        local_path = config.BASE_DIR / background_ref if not Path(background_ref).is_absolute() else Path(background_ref)
-        if local_path.exists() and local_path.is_file():
+        try:
+            cand = Path(background_ref)
+            resolved = (config.BASE_DIR / cand if not cand.is_absolute() else cand).resolve()
+            # Enforce path containment within DATA_DIR or ASSETS_DIR (L-3)
+            base_data = config.DATA_DIR.resolve()
+            base_assets = config.ASSETS_DIR.resolve()
+            is_contained = False
             try:
-                img = Image.open(local_path)
+                is_contained = resolved.is_relative_to(base_data) or resolved.is_relative_to(base_assets)
+            except AttributeError:
+                is_contained = str(resolved).startswith(str(base_data)) or str(resolved).startswith(str(base_assets))
+
+            if is_contained and resolved.exists() and resolved.is_file():
+                img = Image.open(resolved)
                 return img.convert("RGBA")
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     # Default fallback to bundled local background
     if DEFAULT_BACKGROUND_PATH.exists():

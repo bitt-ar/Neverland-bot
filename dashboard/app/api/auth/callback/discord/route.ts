@@ -28,13 +28,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Verify OAuth CSRF state token
+  // Verify OAuth CSRF state token strictly (M-1)
   const stateCookie = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
-  let targetDestination = "/servers";
+  if (!rawState || !stateCookie) {
+    const loginUrl = createRedirectUrl("/login", request);
+    loginUrl.searchParams.set("error", "csrf_validation_failed");
+    return NextResponse.redirect(loginUrl);
+  }
 
+  let targetDestination = "/servers";
   if (rawState.includes(":")) {
     const [tokenPart, destPart] = rawState.split(":", 2);
-    if (!stateCookie || tokenPart !== stateCookie) {
+    if (tokenPart !== stateCookie) {
       const loginUrl = createRedirectUrl("/login", request);
       loginUrl.searchParams.set("error", "csrf_validation_failed");
       return NextResponse.redirect(loginUrl);
@@ -44,14 +49,13 @@ export async function GET(request: NextRequest) {
     } catch {
       targetDestination = "/servers";
     }
-  } else if (rawState) {
-    // If state was sent without token separator, ensure it matches cookie if present
-    if (stateCookie && rawState !== stateCookie) {
+  } else {
+    if (rawState !== stateCookie) {
       const loginUrl = createRedirectUrl("/login", request);
       loginUrl.searchParams.set("error", "csrf_validation_failed");
       return NextResponse.redirect(loginUrl);
     }
-    targetDestination = sanitizeRedirectPath(rawState);
+    targetDestination = "/servers";
   }
 
   const redirectUri =

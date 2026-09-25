@@ -8,3 +8,4 @@ motor
 aiohttp
 pydantic
 certifi>=2023.7.22
+regex>=2024.11.6

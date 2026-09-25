@@ -75,8 +75,9 @@ async def radio_bots_get_handler(request: web.Request) -> web.Response:
     bot = request.app.get("bot")
     radio_mgr = getattr(bot, "radio_manager", None)
 
+    bots_count = getattr(config, "RADIO_BOTS_COUNT", 3)
     slots_data = []
-    for slot in (0, 1, 2):
+    for slot in range(bots_count):
         if radio_mgr:
             status = await radio_mgr.get_bot_status(gid, slot)
         else:
@@ -120,9 +121,13 @@ async def radio_bot_save_handler(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"error": "Invalid JSON body"}, status=400)
 
+    bots_count = getattr(config, "RADIO_BOTS_COUNT", 3)
     slot = data.get("bot_slot")
-    if slot not in (1, 2):
-        return web.json_response({"error": "bot_slot must be 1 or 2"}, status=400)
+    if slot not in (1, 2) or slot >= bots_count:
+        return web.json_response(
+            {"error": f"bot_slot {slot} is not permitted under current configuration (active bots: {bots_count})"},
+            status=400,
+        )
 
     raw_token = str(data.get("token", "")).strip()
     if not raw_token:
@@ -250,9 +255,10 @@ async def radio_playlist_create_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid guild ID"}, status=400)
 
     existing = await database.get_radio_playlists(gid)
-    if len(existing) >= 3:
+    max_playlists = getattr(config, "RADIO_MAX_PLAYLISTS_PER_GUILD", 6)
+    if len(existing) >= max_playlists:
         return web.json_response(
-            {"error": "Maximum of 3 playlists allowed per server."},
+            {"error": f"Maximum of {max_playlists} playlists allowed per server."},
             status=400,
         )
 
@@ -354,23 +360,33 @@ async def radio_track_upload_handler(request: web.Request) -> web.Response:
     if not playlist:
         return web.json_response({"error": "Playlist does not exist"}, status=404)
 
-    # Read storage configuration
+    # Read storage and upload configuration
     cfg = await database.get_radio_config(gid)
-    max_storage_mb = cfg.get("max_playlist_storage_mb", 100)
+    max_storage_mb = cfg.get("max_playlist_storage_mb", 50)
     max_storage_bytes = max_storage_mb * 1024 * 1024
+    max_upload_mb = cfg.get("max_upload_size_mb", 25)
+    max_upload_bytes = max_upload_mb * 1024 * 1024
 
     # Current playlist total size
     existing_tracks = await database.get_radio_tracks(gid, pid)
     current_size = sum(t.get("file_size_bytes", 0) for t in existing_tracks)
 
     # Early Content-Length check to prevent denial of service (N-M5)
-    if request.content_length and (current_size + request.content_length > max_storage_bytes):
-        return web.json_response(
-            {
-                "error": f"Storage quota exceeded. Allowed limit set by Bot Owner is {max_storage_mb} MB per playlist."
-            },
-            status=400,
-        )
+    if request.content_length:
+        if request.content_length > max_upload_bytes:
+            return web.json_response(
+                {
+                    "error": f"File size exceeds maximum allowed upload size ({max_upload_mb} MB)."
+                },
+                status=400,
+            )
+        if current_size + request.content_length > max_storage_bytes:
+            return web.json_response(
+                {
+                    "error": f"Storage quota exceeded. Allowed limit set by Bot Owner is {max_storage_mb} MB per playlist."
+                },
+                status=400,
+            )
 
     track_id = f"trk_{uuid.uuid4().hex[:8]}"
     storage_dir = get_radio_storage_dir(gid, pid)
@@ -394,6 +410,7 @@ async def radio_track_upload_handler(request: web.Request) -> web.Response:
                 if part.name == "file":
                     found_file = True
                     original_filename = part.filename or "track.mp3"
+                    file_too_large = False
                     quota_exceeded = False
                     with open(temp_path, "wb") as out_f:
                         while True:
@@ -405,10 +422,22 @@ async def radio_track_upload_handler(request: web.Request) -> web.Response:
                             if not chunk:
                                 break
                             uploaded_bytes += len(chunk)
+                            if uploaded_bytes > max_upload_bytes:
+                                file_too_large = True
+                                break
                             if current_size + uploaded_bytes > max_storage_bytes:
                                 quota_exceeded = True
                                 break
                             out_f.write(chunk)
+
+                    if file_too_large:
+                        temp_path.unlink(missing_ok=True)
+                        return web.json_response(
+                            {
+                                "error": f"File size exceeds maximum allowed upload size ({max_upload_mb} MB)."
+                            },
+                            status=400,
+                        )
 
                     if quota_exceeded:
                         temp_path.unlink(missing_ok=True)
@@ -452,6 +481,14 @@ async def radio_track_upload_handler(request: web.Request) -> web.Response:
 
             if uploaded_bytes == 0:
                 return web.json_response({"error": "Uploaded file is empty"}, status=400)
+
+            if uploaded_bytes > max_upload_bytes:
+                return web.json_response(
+                    {
+                        "error": f"File size exceeds maximum allowed upload size ({max_upload_mb} MB)."
+                    },
+                    status=400,
+                )
 
             if current_size + uploaded_bytes > max_storage_bytes:
                 return web.json_response(
@@ -552,8 +589,12 @@ async def radio_play_handler(request: web.Request) -> web.Response:
     playlist_id = data.get("playlist_id")
     loop = bool(data.get("loop", True))
 
-    if slot not in (0, 1, 2):
-        return web.json_response({"error": "bot_slot must be 0, 1, or 2"}, status=400)
+    bots_count = getattr(config, "RADIO_BOTS_COUNT", 3)
+    if slot not in range(bots_count):
+        return web.json_response(
+            {"error": f"bot_slot {slot} is not permitted under current configuration (active bots: {bots_count})"},
+            status=400,
+        )
     if not channel_id:
         return web.json_response({"error": "voice_channel_id is required"}, status=400)
     if not playlist_id or not _PID_RE.match(str(playlist_id)):
@@ -611,8 +652,9 @@ async def radio_status_handler(request: web.Request) -> web.Response:
     if not radio_mgr:
         return web.json_response({"error": "Radio manager not initialized"}, status=500)
 
+    bots_count = getattr(config, "RADIO_BOTS_COUNT", 3)
     streams = []
-    for slot in (0, 1, 2):
+    for slot in range(bots_count):
         slot_status = await radio_mgr.get_bot_status(gid, slot)
         active_doc = await database.get_active_stream(gid, slot)
         slot_status["active_stream"] = active_doc
