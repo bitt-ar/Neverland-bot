@@ -942,6 +942,125 @@ def is_process_running(pid: int) -> bool:
             return False
 
 
+def kill_process_tree(pid: int):
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    if platform.system() == "Windows":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+    else:
+        try:
+            pgid = os.getpgid(pid)
+            if pgid != os.getpgrp():
+                os.killpg(pgid, signal.SIGTERM)
+                time.sleep(0.5)
+                if is_process_running(pid):
+                    os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(0.5)
+                if is_process_running(pid):
+                    os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        except Exception:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+
+
+def find_pids_by_port(port: int) -> list[int]:
+    """Find PIDs of processes listening on a specific TCP port."""
+    pids = []
+    if platform.system() == "Windows":
+        try:
+            res = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False)
+            for line in res.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line.upper():
+                    parts = line.strip().split()
+                    if parts:
+                        try:
+                            p = int(parts[-1])
+                            if p > 0 and p not in pids:
+                                pids.append(p)
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+    else:
+        try:
+            res = subprocess.run(["ss", "-tlpn", f"sport = :{port}"], capture_output=True, text=True, check=False)
+            for match in re.finditer(r"pid=(\d+)", res.stdout):
+                pids.append(int(match.group(1)))
+        except Exception:
+            pass
+        if not pids and shutil.which("fuser"):
+            try:
+                res = subprocess.run(["fuser", f"{port}/tcp"], capture_output=True, text=True, check=False)
+                for part in res.stdout.split() + res.stderr.split():
+                    if part.strip().isdigit():
+                        pids.append(int(part.strip()))
+            except Exception:
+                pass
+        if not pids and shutil.which("lsof"):
+            try:
+                res = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True, check=False)
+                for line in res.stdout.splitlines():
+                    if line.strip().isdigit():
+                        pids.append(int(line.strip()))
+            except Exception:
+                pass
+    return list(set(pids))
+
+
+def free_port_if_occupied(port: int) -> list[int]:
+    """Free a TCP port if held by any stray process."""
+    killed = []
+    my_pid = os.getpid()
+    for pid in find_pids_by_port(port):
+        if pid != my_pid and pid > 0:
+            kill_process_tree(pid)
+            killed.append(pid)
+    return killed
+
+
+def find_stray_bot_processes() -> list[int]:
+    """Find any running python processes executing Neverland's main.py."""
+    stray_pids = []
+    my_pid = os.getpid()
+    if platform.system() == "Windows":
+        try:
+            res = subprocess.run(
+                ["wmic", "process", "where", "name like 'python%.exe'", "get", "processid,commandline"],
+                capture_output=True, text=True, check=False
+            )
+            for line in res.stdout.splitlines():
+                if "main.py" in line:
+                    parts = line.strip().split()
+                    if parts and parts[-1].isdigit():
+                        p = int(parts[-1])
+                        if p != my_pid and p not in stray_pids:
+                            stray_pids.append(p)
+        except Exception:
+            pass
+    else:
+        try:
+            res = subprocess.run(["ps", "-eo", "pid,args"], capture_output=True, text=True, check=False)
+            for line in res.stdout.splitlines():
+                if ("main.py" in line) and ("python" in line):
+                    parts = line.strip().split()
+                    if parts and parts[0].isdigit():
+                        p = int(parts[0])
+                        if p != my_pid and p not in stray_pids:
+                            stray_pids.append(p)
+        except Exception:
+            pass
+    return stray_pids
+
+
 def find_npm_runner() -> str:
     refresh_env_path()
     for cmd in ["pnpm", "npm", "yarn"]:
@@ -1111,6 +1230,13 @@ def cmd_start(args):
         else:
             print(f"  {Colors.GREEN}[OK] MongoDB connection verified.{Colors.RESET}")
 
+        # Proactively ensure control plane port is free from any previous orphaned instances
+        ctrl_port = int(env_vars.get("CONTROL_PLANE_PORT", "8800"))
+        freed_ctrl = free_port_if_occupied(ctrl_port)
+        if freed_ctrl:
+            print(f"  {Colors.YELLOW}[INFO] Freed occupied Control Plane port {ctrl_port} (PID: {', '.join(map(str, freed_ctrl))}){Colors.RESET}")
+            time.sleep(0.5)
+
         bot_cmd = [python_exe, str(BASE_DIR / "main.py")]
         if is_daemon:
             bot_log = open(LOGS_DIR / "bot.log", "a", encoding="utf-8")
@@ -1151,6 +1277,15 @@ def cmd_start(args):
         dash_host = str(env_vars.get("HOSTNAME", "0.0.0.0"))
         env["PORT"] = dash_port
         env["HOSTNAME"] = dash_host
+
+        # Proactively ensure dashboard port is free
+        try:
+            freed_dash = free_port_if_occupied(int(dash_port))
+            if freed_dash:
+                print(f"  {Colors.YELLOW}[INFO] Freed occupied Dashboard port {dash_port} (PID: {', '.join(map(str, freed_dash))}){Colors.RESET}")
+                time.sleep(0.5)
+        except Exception:
+            pass
 
         dash_cmd = get_node_cmd(runner, "run", dash_script)
 
@@ -1231,36 +1366,6 @@ def cmd_start(args):
 # COMMAND: STOP
 # =====================================================================
 
-def kill_process_tree(pid: int):
-    if not isinstance(pid, int) or pid <= 0:
-        return
-    if platform.system() == "Windows":
-        try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-    else:
-        try:
-            pgid = os.getpgid(pid)
-            if pgid != os.getpgrp():
-                os.killpg(pgid, signal.SIGTERM)
-                time.sleep(0.5)
-                if is_process_running(pid):
-                    os.killpg(pgid, signal.SIGKILL)
-            else:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.5)
-                if is_process_running(pid):
-                    os.kill(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-        except Exception:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-
-
 def cmd_stop(args):
     quiet = getattr(args, "quiet", False)
     if not quiet:
@@ -1284,6 +1389,35 @@ def cmd_stop(args):
             print(f"  {Colors.GREEN}[OK] Web Dashboard stopped (PID: {dashboard_pid}){Colors.RESET}")
         stopped_any = True
 
+    # Clean up any stray/orphaned bot processes running main.py
+    for stray_pid in find_stray_bot_processes():
+        if stray_pid != bot_pid and stray_pid != dashboard_pid:
+            kill_process_tree(stray_pid)
+            if not quiet:
+                print(f"  {Colors.YELLOW}[OK] Cleaned up orphaned Bot process (PID: {stray_pid}){Colors.RESET}")
+            stopped_any = True
+
+    # Free control plane port if still bound
+    env_vars = load_env_dict(BOT_ENV_FILE)
+    try:
+        ctrl_port = int(env_vars.get("CONTROL_PLANE_PORT", "8800"))
+        for port_pid in free_port_if_occupied(ctrl_port):
+            if not quiet:
+                print(f"  {Colors.YELLOW}[OK] Freed Control Plane port {ctrl_port} (PID: {port_pid}){Colors.RESET}")
+            stopped_any = True
+    except Exception:
+        pass
+
+    # Free dashboard port if still bound
+    try:
+        dash_port = int(env_vars.get("PORT", "3000"))
+        for port_pid in free_port_if_occupied(dash_port):
+            if not quiet:
+                print(f"  {Colors.YELLOW}[OK] Freed Dashboard port {dash_port} (PID: {port_pid}){Colors.RESET}")
+            stopped_any = True
+    except Exception:
+        pass
+
     save_pids({})
 
     if not stopped_any and not quiet:
@@ -1294,7 +1428,7 @@ def cmd_stop(args):
 
 def cmd_restart(args):
     cmd_stop(args)
-    time.sleep(1)
+    time.sleep(1.5)
     cmd_start(args)
 
 

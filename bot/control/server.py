@@ -2449,7 +2449,7 @@ async def start_control_plane(bot) -> web.AppRunner:
     app = create_app(bot)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host=config.CONTROL_PLANE_HOST, port=config.CONTROL_PLANE_PORT)
+    site = web.TCPSite(runner, host=config.CONTROL_PLANE_HOST, port=config.CONTROL_PLANE_PORT, reuse_address=True)
     await site.start()
     return runner
 
