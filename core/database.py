@@ -14,7 +14,15 @@ async def init():
     global _client, db
     if not config.MONGODB_URI:
         raise RuntimeError("MONGODB_URI is not set. Add it to your .env file (see .env.example).")
-    _client = motor.motor_asyncio.AsyncIOMotorClient(config.MONGODB_URI)
+
+    client_kwargs = {}
+    try:
+        import certifi
+        client_kwargs["tlsCAFile"] = certifi.where()
+    except Exception:
+        pass
+
+    _client = motor.motor_asyncio.AsyncIOMotorClient(config.MONGODB_URI, **client_kwargs)
     db = _client[config.MONGODB_DB]
 
     await db.levels.create_index([("guild_id", ASCENDING), ("user_id", ASCENDING)], unique=True)

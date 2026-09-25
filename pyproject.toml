@@ -19,7 +19,8 @@ dependencies = [
     "python-dotenv",
     "motor",
     "aiohttp",
-    "pydantic"
+    "pydantic",
+    "certifi>=2023.7.22"
 ]
 
 [project.urls]

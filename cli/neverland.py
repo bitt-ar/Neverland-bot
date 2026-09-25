@@ -88,7 +88,13 @@ def check_mongodb_connection(uri: str, timeout_ms: int = 3000) -> tuple[bool, st
     client = None
     try:
         from pymongo import MongoClient
-        client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms)
+        client_kwargs = {}
+        try:
+            import certifi
+            client_kwargs["tlsCAFile"] = certifi.where()
+        except Exception:
+            pass
+        client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms, **client_kwargs)
         client.admin.command("ping")
         return True, ""
     except Exception as e:
@@ -449,7 +455,13 @@ def cmd_config(args):
         print(f"  {Colors.GREEN}[OK] Connected to MongoDB successfully.{Colors.RESET}")
     else:
         print(f"  {Colors.YELLOW}[WARNING] Could not reach MongoDB ({new_cfg['MONGODB_URI'].split('@')[-1]}): {db_err}{Colors.RESET}")
-        print(f"  {Colors.DIM}You may continue configuration, but ensure MongoDB is started before running 'neverland start'.{Colors.RESET}")
+        if "TLSV1_ALERT_INTERNAL_ERROR" in db_err or "SSL handshake failed" in db_err:
+            print(f"\n  {Colors.BOLD}{Colors.CYAN}💡 MongoDB Atlas IP Whitelist Notice:{Colors.RESET}")
+            print(f"  Atlas rejected the connection during TLS handshake ({Colors.RED}TLSV1_ALERT_INTERNAL_ERROR{Colors.RESET}).")
+            print(f"  Your current IP address is {Colors.BOLD}NOT whitelisted{Colors.RESET} in MongoDB Atlas Network Access.")
+            print(f"  {Colors.BOLD}To fix:{Colors.RESET} Go to https://cloud.mongodb.com > Security > Network Access > Add IP Address > Allow Access from Anywhere (0.0.0.0/0).\n")
+        else:
+            print(f"  {Colors.DIM}You may continue configuration, but ensure MongoDB is started before running 'neverland start'.{Colors.RESET}")
 
     # Auto-generate or preserve cryptographic secrets
     new_cfg["CONTROL_PLANE_SECRET"] = existing.get("CONTROL_PLANE_SECRET") or secrets.token_hex(32)
@@ -998,7 +1010,18 @@ def cmd_start(args):
         if not db_ok:
             print(f"  {Colors.YELLOW}[WARNING] MongoDB is unreachable at {mongo_uri.split('@')[-1]}:{Colors.RESET}")
             print(f"    {Colors.DIM}{db_err}{Colors.RESET}")
-            print(f"    {Colors.YELLOW}Ensure MongoDB is running before starting the bot.{Colors.RESET}")
+            if "TLSV1_ALERT_INTERNAL_ERROR" in db_err or "SSL handshake failed" in db_err:
+                print(f"\n  {Colors.BOLD}{Colors.CYAN}💡 MongoDB Atlas IP Whitelist Notice:{Colors.RESET}")
+                print(f"  Atlas rejected the connection during TLS handshake ({Colors.RED}TLSV1_ALERT_INTERNAL_ERROR{Colors.RESET}).")
+                print(f"  This almost always means your current IP address is {Colors.BOLD}NOT whitelisted{Colors.RESET} in Atlas.")
+                print(f"  {Colors.BOLD}To fix this:{Colors.RESET}")
+                print(f"    1. Log in to {Colors.CYAN}https://cloud.mongodb.com{Colors.RESET}")
+                print(f"    2. Go to {Colors.BOLD}Security > Network Access{Colors.RESET}")
+                print(f"    3. Click {Colors.BOLD}+ Add IP Address{Colors.RESET}")
+                print(f"    4. Select {Colors.BOLD}'Allow Access From Anywhere' (0.0.0.0/0){Colors.RESET} or 'Add Current IP Address'")
+                print(f"    5. Click Confirm, wait ~1 minute for Atlas to apply, and restart Neverland.\n")
+            else:
+                print(f"    {Colors.YELLOW}Ensure MongoDB is running before starting the bot.{Colors.RESET}")
             if not is_daemon and sys.stdin.isatty():
                 try:
                     proceed = prompt_input("Attempt to start services anyway? (y/N)", default="n").lower()

@@ -7,3 +7,4 @@ python-dotenv
 motor
 aiohttp
 pydantic
+certifi>=2023.7.22
